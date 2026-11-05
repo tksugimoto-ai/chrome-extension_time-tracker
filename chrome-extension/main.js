@@ -3,6 +3,7 @@
 /* global React, ReactDOM */
 import {
 	startOfDate,
+	monthRangeOf,
 	TimeRecord,
 	Formats,
 	todoKeyOf,
@@ -1000,9 +1001,23 @@ const App = () => {
 	const currentRecord = list[list.length - 1];
 
 	const [targetDate, setTargetDate] = useState(startOfDate());
+	/** 集計する最終日 (この日を含む)。未指定なら上限なし */
+	const [targetEndDate, setTargetEndDate] = useState(/** @type{Date=} */ (undefined));
+	const targetEndMs = targetEndDate ? new Date(targetEndDate).setHours(24) : Infinity;
+	// 日付の入力欄は入力途中の値を壊さないよう非制御のままにし、ボタンで期間を変えるときは key を変えて作り直す
+	const [targetDateInputKey, renewTargetDateInputKey] = useReducer(count => count + 1, 0);
+	/**
+	 * @param {number} monthOffset 0: 今月, -1: 先月
+	 */
+	const setTargetMonth = monthOffset => {
+		const {start, end} = monthRangeOf(new Date(), monthOffset);
+		setTargetDate(start);
+		setTargetEndDate(end);
+		renewTargetDateInputKey();
+	};
 	// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
 	// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
-	const grouped = Map.groupBy(allList.filter(record => record.isDateOf(targetDate)), ({type}) => type);
+	const grouped = Map.groupBy(allList.filter(record => record.isDateOf(targetDate) && record.start < targetEndMs), ({type}) => type);
 	const totalWorkTimeSeconds = [...grouped.values()].flatMap(records => records.map(record => is勤務外(record.type) ? 0 : record.workTimeSeconds)).reduce((a, b) => a + b, 0);
 
 	// 計測中の時間を表示し直すための再描画。allList は作り直さないので、allList に依存するメモ化は保たれる
@@ -1402,17 +1417,41 @@ const App = () => {
 			createElement(
 				'input',
 				{
+					key: `start-${targetDateInputKey}`,
 					type: 'date',
 					defaultValue: Formats.ISODateString(targetDate),
 					onChange: e => {
 						if (e.target.validity.badInput) return;
-						setTargetDate(startOfDate(new Date(e.target.valueAsNumber)));
+						// valueAsNumber は UTC の 0:00 なので、ローカル時刻の 0:00 として読む
+						const date = new Date(`${e.target.value}T00:00`);
+						// 年を5桁以上入力したときなどは読めない
+						if (Number.isNaN(date.getTime())) return;
+						setTargetDate(date);
 					},
 				},
 			),
 			`(${targetDate.toLocaleString(undefined, {weekday: 'short'})})`,
 			'～',
-			// TODO: 範囲指定可能にする
+			createElement(
+				'input',
+				{
+					key: `end-${targetDateInputKey}`,
+					type: 'date',
+					defaultValue: targetEndDate ? Formats.ISODateString(targetEndDate) : '',
+					onChange: e => {
+						if (e.target.validity.badInput) return;
+						// 空にしたときは上限なし
+						if (!e.target.value) return setTargetEndDate(undefined);
+						const date = new Date(`${e.target.value}T00:00`);
+						if (Number.isNaN(date.getTime())) return;
+						setTargetEndDate(date);
+					},
+				},
+			),
+			targetEndDate && `(${targetEndDate.toLocaleString(undefined, {weekday: 'short'})})`,
+			' ',
+			createElement('button', {onClick: () => setTargetMonth(0)}, '今月'),
+			createElement('button', {onClick: () => setTargetMonth(-1)}, '先月'),
 			createElement('br'),
 			`勤務時間Total: ${Formats.seconds(totalWorkTimeSeconds)}`,
 			createElement('br'),

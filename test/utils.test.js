@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
 	startOfDate,
+	monthRangeOf,
 	TimeRecord,
 	Formats,
 	todoKeyOf,
@@ -18,6 +19,29 @@ const localTime = (...args) => new Date(...args).getTime();
 describe('startOfDate', () => {
 	it('同じ日の 0:00 にする', () => {
 		assert.equal(startOfDate(new Date(2026, 9, 23, 12, 34, 56, 789)).getTime(), localTime(2026, 9, 23));
+	});
+});
+
+describe('monthRangeOf', () => {
+	it('同じ月の初日と末日', () => {
+		const {start, end} = monthRangeOf(new Date(2026, 10, 5, 12), 0);
+		assert.equal(start.getTime(), localTime(2026, 10, 1));
+		assert.equal(end.getTime(), localTime(2026, 10, 30));
+	});
+	it('前月の初日と末日', () => {
+		const {start, end} = monthRangeOf(new Date(2026, 10, 5), -1);
+		assert.equal(start.getTime(), localTime(2026, 9, 1));
+		assert.equal(end.getTime(), localTime(2026, 9, 31));
+	});
+	it('1月の前月は前年の12月', () => {
+		const {start, end} = monthRangeOf(new Date(2026, 0, 31), -1);
+		assert.equal(start.getTime(), localTime(2025, 11, 1));
+		assert.equal(end.getTime(), localTime(2025, 11, 31));
+	});
+	it('31日から前月にしても月がずれない (2月末日)', () => {
+		const {start, end} = monthRangeOf(new Date(2028, 2, 31), -1);
+		assert.equal(start.getTime(), localTime(2028, 1, 1));
+		assert.equal(end.getTime(), localTime(2028, 1, 29));
 	});
 });
 

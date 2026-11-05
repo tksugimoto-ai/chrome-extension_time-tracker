@@ -8,6 +8,20 @@ export const startOfDate = (date = new Date()) => {
 	return date;
 };
 
+/**
+ * date の月から monthOffset か月ずらした月の、初日と末日 (どちらも 0:00)
+ * @param {Date} date
+ * @param {number} monthOffset 0: 同じ月, -1: 前月
+ */
+export const monthRangeOf = (date, monthOffset) => {
+	const year = date.getFullYear();
+	const month = date.getMonth() + monthOffset;
+	return {
+		start: new Date(year, month, 1),
+		end: new Date(year, month + 1, 0),
+	};
+};
+
 export class TimeRecord {
 	constructor(args) {
 		this.start = Date.now();
