@@ -1423,7 +1423,10 @@ const App = () => {
 					onChange: e => {
 						if (e.target.validity.badInput) return;
 						// valueAsNumber は UTC の 0:00 なので、ローカル時刻の 0:00 として読む
-						setTargetDate(new Date(`${e.target.value}T00:00`));
+						const date = new Date(`${e.target.value}T00:00`);
+						// 年を5桁以上入力したときなどは読めない
+						if (Number.isNaN(date.getTime())) return;
+						setTargetDate(date);
 					},
 				},
 			),
@@ -1438,7 +1441,10 @@ const App = () => {
 					onChange: e => {
 						if (e.target.validity.badInput) return;
 						// 空にしたときは上限なし
-						setTargetEndDate(e.target.value ? new Date(`${e.target.value}T00:00`) : undefined);
+						if (!e.target.value) return setTargetEndDate(undefined);
+						const date = new Date(`${e.target.value}T00:00`);
+						if (Number.isNaN(date.getTime())) return;
+						setTargetEndDate(date);
 					},
 				},
 			),
