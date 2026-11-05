@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
 	startOfDate,
 	monthRangeOf,
+	dayOf,
 	TimeRecord,
 	Formats,
 	todoKeyOf,
@@ -42,6 +43,18 @@ describe('monthRangeOf', () => {
 		const {start, end} = monthRangeOf(new Date(2028, 2, 31), -1);
 		assert.equal(start.getTime(), localTime(2028, 1, 1));
 		assert.equal(end.getTime(), localTime(2028, 1, 29));
+	});
+});
+
+describe('dayOf', () => {
+	it('同じ日の 0:00', () => {
+		assert.equal(dayOf(new Date(2026, 10, 5, 12, 34), 0).getTime(), localTime(2026, 10, 5));
+	});
+	it('月初の前日は前月の末日', () => {
+		assert.equal(dayOf(new Date(2026, 10, 1), -1).getTime(), localTime(2026, 9, 31));
+	});
+	it('年末の翌日は翌年の1月1日', () => {
+		assert.equal(dayOf(new Date(2026, 11, 31), 1).getTime(), localTime(2027, 0, 1));
 	});
 });
 

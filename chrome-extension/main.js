@@ -4,6 +4,7 @@
 import {
 	startOfDate,
 	monthRangeOf,
+	dayOf,
 	TimeRecord,
 	Formats,
 	todoKeyOf,
@@ -1028,7 +1029,7 @@ const App = () => {
 	 * @param {number} dayOffset 0: base の日, -1: 前日, 1: 翌日
 	 */
 	const setTargetDay = (base, dayOffset) => {
-		const date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + dayOffset);
+		const date = dayOf(base, dayOffset);
 		setTargetRange(date, date);
 	};
 	// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
