@@ -1266,6 +1266,25 @@ const App = () => {
 											},
 										}, '削除'),
 										createElement('button', {
+											onClick: () => {
+												const newName = window.prompt(`グループ「${group}」の新しい名前`, group);
+												if (!newName || newName === group) return;
+												if (todoGroups.includes(newName)) {
+													alert(`グループ「${newName}」は既に存在します`);
+													return;
+												}
+												// FIXME: mutableをやめる
+												todoGroups[groupIndex] = newName;
+												// ToDo はグループを名前で持つので、合わせて書き換えないと「(グループなし)」になる
+												const groupTodos = todos.filter(todo => todo.group === group);
+												groupTodos.forEach(todo => {
+													todo.group = newName;
+												});
+												saveTodoGroup();
+												if (groupTodos.length) saveTodo();
+											},
+										}, '名前変更'),
+										createElement('button', {
 											disabled: groupIndex === 0,
 											onClick: () => {
 												// FIXME: mutableをやめる
