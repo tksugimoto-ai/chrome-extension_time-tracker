@@ -22,6 +22,15 @@ export const monthRangeOf = (date, monthOffset) => {
 	};
 };
 
+/**
+ * date の日から dayOffset 日ずらした日 (0:00)
+ * @param {Date} date
+ * @param {number} dayOffset 0: 同じ日, -1: 前日, 1: 翌日
+ */
+export const dayOf = (date, dayOffset) => {
+	return new Date(date.getFullYear(), date.getMonth(), date.getDate() + dayOffset);
+};
+
 export class TimeRecord {
 	constructor(args) {
 		this.start = Date.now();

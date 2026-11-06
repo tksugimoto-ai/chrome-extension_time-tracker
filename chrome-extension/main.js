@@ -4,6 +4,7 @@
 import {
 	startOfDate,
 	monthRangeOf,
+	dayOf,
 	TimeRecord,
 	Formats,
 	todoKeyOf,
@@ -1007,13 +1008,29 @@ const App = () => {
 	// 日付の入力欄は入力途中の値を壊さないよう非制御のままにし、ボタンで期間を変えるときは key を変えて作り直す
 	const [targetDateInputKey, renewTargetDateInputKey] = useReducer(count => count + 1, 0);
 	/**
+	 * @param {Date} start
+	 * @param {Date} end この日を含む
+	 */
+	const setTargetRange = (start, end) => {
+		setTargetDate(start);
+		setTargetEndDate(end);
+		renewTargetDateInputKey();
+	};
+	/**
 	 * @param {number} monthOffset 0: 今月, -1: 先月
 	 */
 	const setTargetMonth = monthOffset => {
 		const {start, end} = monthRangeOf(new Date(), monthOffset);
-		setTargetDate(start);
-		setTargetEndDate(end);
-		renewTargetDateInputKey();
+		setTargetRange(start, end);
+	};
+	/**
+	 * base から dayOffset 日ずらした 1 日だけを集計する
+	 * @param {Date} base
+	 * @param {number} dayOffset 0: base の日, -1: 前日, 1: 翌日
+	 */
+	const setTargetDay = (base, dayOffset) => {
+		const date = dayOf(base, dayOffset);
+		setTargetRange(date, date);
 	};
 	// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
 	// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
@@ -1471,6 +1488,10 @@ const App = () => {
 			' ',
 			createElement('button', {onClick: () => setTargetMonth(0)}, '今月'),
 			createElement('button', {onClick: () => setTargetMonth(-1)}, '先月'),
+			' ',
+			createElement('button', {onClick: () => setTargetDay(new Date(), 0)}, '今日'),
+			createElement('button', {onClick: () => setTargetDay(targetDate, -1)}, '前日'),
+			createElement('button', {onClick: () => setTargetDay(targetDate, 1)}, '翌日'),
 			createElement('br'),
 			`勤務時間Total: ${Formats.seconds(totalWorkTimeSeconds)}`,
 			createElement('br'),
