@@ -1,7 +1,8 @@
 {
-	// 型チェック専用 (npm run typecheck)。checkJs は付けず、// @ts-check のあるファイルだけを検査する
+	// 型チェック専用 (npm run typecheck)
 	"compilerOptions": {
 		"allowJs": true,
+		"checkJs": true,
 		"noEmit": true,
 		"target": "ES2024",
 		"module": "ESNext",
