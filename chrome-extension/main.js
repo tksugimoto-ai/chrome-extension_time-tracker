@@ -411,7 +411,6 @@ const RecordView = ({
  * 集計結果の詳細のように多くの記録を並べるときの RecordView。計測中の時間を表示し直す毎秒の再描画で、終了した記録を描画し直さない
  * 記録は書き換えられる (mutable) ため record が同じでも中身が変わっていることがある。そのため保存のたびに作り直される一覧を revision に渡し、それも比べる
  * 計測中の記録は経過時間が変わるため、いつも描画し直す
- * @type {typeof RecordView}
  */
 const MemoRecordView = memo(RecordView, (prev, next) => {
 	const keys = Object.keys(next);
