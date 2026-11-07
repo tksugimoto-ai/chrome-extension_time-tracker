@@ -1,0 +1,14 @@
+{
+	// 型チェック専用 (npm run typecheck)。checkJs は付けず、// @ts-check のあるファイルだけを検査する
+	"compilerOptions": {
+		"allowJs": true,
+		"noEmit": true,
+		// lib は target から決まる。ES2024 にすると Map.groupBy の @ts-expect-error (main.js) が不要になりエラーになる
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		// React, ReactDOM を <script> で読み込んだグローバルとして使うため
+		"allowUmdGlobalAccess": true
+	},
+	"include": ["chrome-extension/*.js"]
+}
