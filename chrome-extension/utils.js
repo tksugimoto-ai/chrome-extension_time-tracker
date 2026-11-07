@@ -348,13 +348,13 @@ export const nextTodoId = todos => todos.reduce((max, {id}) => Math.max(max, id 
 
 /**
  * ID のない ToDo（ID で参照する前に保存したもの）に ID を振る。振らなくてよければ引数をそのまま返す
- * @param {Omit<Todo, 'id'> & {id?: number}[]} todos
+ * @param {(Omit<Todo, 'id'> & {id?: number | null})[]} todos
  * @returns {Todo[]}
  */
 export const assignTodoIds = todos => {
 	if (todos.every(({id}) => id != null)) return /** @type {Todo[]} */ (todos);
 	let id = nextTodoId(todos);
-	return todos.map(todo => todo.id == null ? {...todo, id: id++} : todo);
+	return todos.map(todo => ({...todo, id: todo.id ?? id++}));
 };
 
 /**

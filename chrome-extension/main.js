@@ -237,7 +237,7 @@ const useRecordList = (todos, isTodosLoaded) => {
 	const savedJsonRef = useRef(null);
 	const write = useCallback(list => {
 		if (!savedJsonRef.current) return;
-		const {items, removeKeys, savedJson} = planRecordSave(list, savedJsonRef.current);
+		const {items, removeKeys, savedJson} = planRecordSave(/** @type {TimeRecord[]} */ (list), savedJsonRef.current);
 		if (Object.keys(items).length === 0 && removeKeys.length === 0) return;
 		savedJsonRef.current = savedJson;
 		// storage は toJSON を使わずに保存するため、保存する形式（配列）にしてから渡す
