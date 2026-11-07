@@ -447,7 +447,8 @@ const EditTimeForm = ({
 			method: 'dialog',
 			// 入力値のチェック (前後の記録と重ならない・終了は開始以降) は input の min/max/required で行う
 			onSubmit: e => {
-				if (e.nativeEvent.submitter?.value === 'remove') {
+				const submitter = /** @type {HTMLButtonElement | null} */ (/** @type {SubmitEvent} */ (e.nativeEvent).submitter);
+				if (submitter?.value === 'remove') {
 					remove(record);
 					return;
 				}
