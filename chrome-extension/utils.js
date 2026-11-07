@@ -8,6 +8,29 @@ export const startOfDate = (date = new Date()) => {
 	return date;
 };
 
+/**
+ * date の月から monthOffset か月ずらした月の、初日と末日 (どちらも 0:00)
+ * @param {Date} date
+ * @param {number} monthOffset 0: 同じ月, -1: 前月
+ */
+export const monthRangeOf = (date, monthOffset) => {
+	const year = date.getFullYear();
+	const month = date.getMonth() + monthOffset;
+	return {
+		start: new Date(year, month, 1),
+		end: new Date(year, month + 1, 0),
+	};
+};
+
+/**
+ * date の日から dayOffset 日ずらした日 (0:00)
+ * @param {Date} date
+ * @param {number} dayOffset 0: 同じ日, -1: 前日, 1: 翌日
+ */
+export const dayOf = (date, dayOffset) => {
+	return new Date(date.getFullYear(), date.getMonth(), date.getDate() + dayOffset);
+};
+
 /** 参照先の ToDo が見つからない記録に表示する分類 */
 export const MISSING_TODO_TYPE = '(不明なToDo)';
 
