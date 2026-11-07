@@ -4,6 +4,7 @@
 		"allowJs": true,
 		"checkJs": true,
 		"noEmit": true,
+		// ES2024 のうち Promise.withResolvers は Chrome 119 から。対応する Chrome の最低バージョンより新しい API も型エラーにならないので注意
 		"target": "ES2024",
 		"module": "ESNext",
 		"moduleResolution": "Bundler",
