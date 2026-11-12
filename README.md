@@ -1,7 +1,7 @@
 # Chrome拡張 `Time tracker`
 
 ## インストール方法
-Chrome 117 以上が必要（[manifest.json](./chrome-extension/manifest.json) の `minimum_chrome_version`）
+Chrome 119 以上が必要（[manifest.json](./chrome-extension/manifest.json) の `minimum_chrome_version`）
 
 1. 拡張機能ページを開く
 	- `chrome://extensions/`
