@@ -452,6 +452,23 @@ const EditTimeForm = ({
 	const startMax = Formats.ISODateTimeString(Math.min(maxMs, record.endOfStartDate - 1000));
 	// 計測中に戻せるのは今日の最後の記録だけ (前日以前は 24:00 で自動終了されるため)
 	const canResume = !next && record.isDateOf(startOfDate());
+	// 削除した時間帯を、同じ日の前後の記録で埋めることもできる
+	const removeOptions = [
+		{value: 'remove', label: '削除', message: 'この記録を削除しますか？'},
+		prev?.endOfStartDate === record.endOfStartDate && {
+			value: 'remove-extend-prev',
+			label: '削除して前の記録を延ばす',
+			message: 'この記録を削除し、前の記録の終了をこの記録の終了まで延ばしますか？',
+			// 消す記録が計測中なら、前の記録が計測中になる
+			beforeRemove: () => prev.setTime(prev.start, record.end),
+		},
+		next?.endOfStartDate === record.endOfStartDate && {
+			value: 'remove-extend-next',
+			label: '削除して次の記録を早める',
+			message: 'この記録を削除し、次の記録の開始をこの記録の開始まで早めますか？',
+			beforeRemove: () => next.setTime(record.start, next.end),
+		},
+	].filter(option => !!option);
 	return createElement(
 		'form',
 		{
@@ -459,7 +476,11 @@ const EditTimeForm = ({
 			// 入力値のチェック (前後の記録と重ならない・終了は開始以降) は input の min/max/required で行う
 			onSubmit: e => {
 				const submitter = /** @type {HTMLButtonElement | null} */ (/** @type {SubmitEvent} */ (e.nativeEvent).submitter);
-				if (submitter?.value === 'remove') {
+				const removeOption = removeOptions.find(option => option.value === submitter?.value);
+				if (removeOption) {
+					// 前後の記録を先に書き換えてから消すと、保存が1回で済む
+					// FIXME: mutableをやめる
+					removeOption.beforeRemove?.();
 					remove(record);
 					return;
 				}
@@ -504,14 +525,16 @@ const EditTimeForm = ({
 			canResume && '(空欄にすると計測中に戻る)',
 		),
 		createElement('button', {}, '確定'),
-		createElement('button', {
-			value: 'remove',
+		createElement('br'),
+		removeOptions.map(({value, label, message}) => createElement('button', {
+			key: value,
+			value,
 			// 入力途中の時刻が不正でも削除できるよう、入力値のチェックをしない
 			formNoValidate: true,
 			onClick: e => {
-				if (!window.confirm('この記録を削除しますか？')) e.preventDefault();
+				if (!window.confirm(message)) e.preventDefault();
 			},
-		}, '削除'),
+		}, label)),
 	);
 };
 
