@@ -1,4 +1,3 @@
-// @ts-check
 /* global chrome */
 /* global React, ReactDOM */
 import {
@@ -25,6 +24,7 @@ const {
 	useEffect,
 	useMemo,
 	useReducer,
+	memo,
 } = React;
 
 
@@ -318,6 +318,7 @@ const titleSize = 40;
  * @param {boolean=} param0.isEditable
  * @param {boolean=} param0.hideDate
  * @param {any=} param0.titleRef // TODO: type定義
+ * @param {any=} param0.revision MemoRecordView で描画し直すかの判定にだけ使う
  * @returns
  */
 const RecordView = ({
@@ -411,6 +412,16 @@ const RecordView = ({
 		),
 	);
 };
+
+/**
+ * 集計結果の詳細のように多くの記録を並べるときの RecordView。計測中の時間を表示し直す毎秒の再描画で、終了した記録を描画し直さない
+ * 記録は書き換えられる (mutable) ため record が同じでも中身が変わっていることがある。そのため保存のたびに作り直される一覧を revision に渡し、それも比べる
+ * 計測中の記録は経過時間が変わるため、いつも描画し直す
+ */
+const MemoRecordView = memo(RecordView, (prev, next) => {
+	const keys = Object.keys(next);
+	return !!next.record.end && keys.length === Object.keys(prev).length && keys.every(key => prev[key] === next[key]);
+});
 
 /**
  * 記録の開始・終了時刻を編集する
@@ -1012,11 +1023,11 @@ const App = () => {
 	/**
 	 * @param {TimeRecord} record
 	 */
-	const editTime = record => {
+	const editTime = useCallback(record => {
 		// 開くたびに key を変えて、前回キャンセルした入力内容を残さない
 		setEditTimeTarget({record, key: Date.now()});
 		showEditTimeModalDialog();
-	};
+	}, [showEditTimeModalDialog]);
 	const editTimeTargetIndex = editTimeTarget ? allList.indexOf(editTimeTarget.record) : -1;
 
 	// TODO: 日付関連もう少し整理する
@@ -1055,8 +1066,6 @@ const App = () => {
 		const date = dayOf(base, dayOffset);
 		setTargetRange(date, date);
 	};
-	// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-	// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 	const grouped = Map.groupBy(allList.filter(record => record.isDateOf(targetDate) && record.start < targetEndMs), ({type}) => type);
 	const totalWorkTimeSeconds = [...grouped.values()].flatMap(records => records.map(record => is勤務外(record.type) ? 0 : record.workTimeSeconds)).reduce((a, b) => a + b, 0);
 
@@ -1277,8 +1286,6 @@ const App = () => {
 				};
 				if (usingTodoGroup) {
 					const groupNothingValue = undefined;
-					// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-					// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 					const groupdMap = Map.groupBy(todos, (({group}) => todoGroups.includes(group) ? group : groupNothingValue));
 					return createElement(
 						React.Fragment,
@@ -1362,8 +1369,6 @@ const App = () => {
 			usingTodoEstimation && createElement(
 				'ul',
 				{},
-				// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-				// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 				[...Map.groupBy(todoWorkTimes, ({todo}) => todo.type).entries()].map(([type, sameTypeTodoWorkTimes]) => {
 					const remainTime = sameTypeTodoWorkTimes.reduce((acc, {todo, total}) => {
 						return acc + calculateRemainingTime(todo, total);
@@ -1565,8 +1570,6 @@ const App = () => {
 				isAggregationVisible && createElement(
 					'ul',
 					{},
-					// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-					// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 					[...Map.groupBy(records, ({title}) => title || '').entries()].map(([title, sameTitleRecords]) => {
 						const sameTitleWorkTimeSeconds = sameTitleRecords.map(record => record.workTimeSeconds).reduce((a, b) => a + b, 0);
 						return {
@@ -1591,7 +1594,7 @@ const App = () => {
 									{
 										key: record.start,
 									},
-									createElement(RecordView, {types, record, save, editTime, finishAndAddRecord, isEditable: false}),
+									createElement(MemoRecordView, {types, record, save, editTime, isEditable: false, revision: allList}),
 								);
 							})),
 						);
@@ -1604,7 +1607,7 @@ const App = () => {
 						{
 							key: record.start,
 						},
-						createElement(RecordView, {types, record, save, editTime, finishAndAddRecord, isEditable: false}),
+						createElement(MemoRecordView, {types, record, save, editTime, isEditable: false, revision: allList}),
 					);
 				})),
 			);

@@ -1,6 +1,8 @@
 # Chrome拡張 `Time tracker`
 
 ## インストール方法
+Chrome 117 以上が必要（[manifest.json](./chrome-extension/manifest.json) の `minimum_chrome_version`）
+
 1. 拡張機能ページを開く
 	- `chrome://extensions/`
 1. `デベロッパー モード`を有効にする
@@ -40,6 +42,6 @@ npm run lint
 npm run typecheck
 npm test
 ```
-- 型チェック (`npm run typecheck`) の対象は `chrome-extension/` で先頭に `// @ts-check` を付けたファイル
+- 型チェック (`npm run typecheck`) の対象は `chrome-extension/` 直下の JS ファイル（`lib/` は除く）
 - テストは Node.js 組み込みのテストランナー (`node:test`) で、`test/*.test.js` に置く
 - テストしたい処理は `chrome-extension/main.js` から ES Modules に切り出して import する（例: `chrome-extension/utils.js`。まとまりが大きくなったら分野ごとのモジュールに分ける）
