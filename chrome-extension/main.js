@@ -1560,7 +1560,9 @@ const App = () => {
 					/** @type{Map<string, number>} */
 					const subtotalByDate = new Map();
 					targetWorkRecords.forEach(record => addToSubtotalByDate(subtotalByDate, record));
-					setSubtotal({title: '日ごとの勤務時間', total: totalWorkTimeSeconds, subtotalByDate});
+					// 計測中の記録の時間は描画時点から進んでいるので、合計も押したときの小計から出す
+					const total = [...subtotalByDate.values()].reduce((acc, seconds) => acc + seconds, 0);
+					setSubtotal({title: '日ごとの勤務時間', total, subtotalByDate});
 					showSubtotalModalDialog();
 				},
 			}, '日ごとの合計'),
