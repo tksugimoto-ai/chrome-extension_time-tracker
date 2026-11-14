@@ -48,21 +48,10 @@ export const launchExtension = async (options = {}) => {
 export const resetStorage = (page, items) => page.evaluate(items => chrome.storage.local.clear().then(() => chrome.storage.local.set(items)), items);
 
 /**
- * storage の内容から記録を、項目名のある形 ({start, end, type, title, memo}) で取り出す
- * 記録は ToDo を ID で参照する配列 ([開始, 経過, ToDo の ID or 分類, …]) のこともある (#20)
+ * storage の内容から記録を取り出す（月ごとのキーをまとめる）
  * @param {Object<string, any>} items
  */
-export const recordsOf = items => {
-	const todoById = new Map((items.todo ?? []).map(todo => [todo.id, todo]));
-	const toObject = record => {
-		if (!Array.isArray(record)) return record;
-		const [start, elapsed, ref, a, b] = record;
-		const todo = typeof ref === 'number' ? todoById.get(ref) : undefined;
-		const [type, title, memo] = typeof ref === 'number' ? [todo?.type, todo?.title, a ?? todo?.memo] : [ref, a, b];
-		return {start, ...(elapsed == null ? {} : {end: start + elapsed}), type, ...(title == null ? {} : {title}), ...(memo ? {memo} : {})};
-	};
-	return loadRecords(items, toObject).records;
-};
+export const recordsOf = items => loadRecords(items).records;
 
 /**
  * @param {import('playwright').Page} page 拡張のページ
