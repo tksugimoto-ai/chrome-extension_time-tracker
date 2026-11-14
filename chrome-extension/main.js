@@ -916,7 +916,7 @@ const App = () => {
 	const [newTodoTitle, setNewTodoTitle] = useState('');
 	const [newTodoMemo, setNewTodoMemo] = useState('');
 	const [newTodoGroup, setNewTodoGroup] = useState('');
-	// 古い ToDo を表示している一覧（グループ名。グループなしは undefined）。開き直すと畳んだ状態に戻る
+	// 古い ToDo を表示している一覧（createList の listKey）。開き直すと畳んだ状態に戻る
 	const [expandedTodoLists, setExpandedTodoLists] = useState(() => new Set());
 
 	const {
@@ -1276,7 +1276,7 @@ const App = () => {
 				const currentKey = currentRecord && todoKeyOf(currentRecord);
 				/**
 				 * @param {Todo[]} list
-				 * @param {string} [listKey]
+				 * @param {string | null} [listKey] グループ名。グループなしは undefined、グループを使わないときは null
 				 */
 				const createList = (list, listKey) => {
 					if (list.length === 0) return createElement('ul', {}, createElement('li', {}, 'ToDoなし'));
@@ -1404,7 +1404,7 @@ const App = () => {
 						}),
 					);
 				}
-				return createList(todos);
+				return createList(todos, null);
 			})(),
 			'※ ToDoごとの経過時間の集計には分類・タイトルのみを使用し、メモ / URLの違いを無視する',
 			// TODO: 表示方法調整(グループ別対応？)
