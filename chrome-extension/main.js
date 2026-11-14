@@ -48,7 +48,7 @@ const domParser = new DOMParser();
  *   url?: string,
  * }> | null}
  */
-const readClipboardData = clipboardData => {
+export const readClipboardData = clipboardData => {
 	const items = Array.from(clipboardData.items);
 	const plain = items.find(item => item.type === 'text/plain');
 	if (!plain) return null;
@@ -72,7 +72,7 @@ const readClipboardData = clipboardData => {
 };
 
 // TODO: types に組み込む
-const is勤務外 = type => {
+export const is勤務外 = type => {
 	return [
 		'昼休憩',
 		'中断',
@@ -88,7 +88,7 @@ chrome.runtime.onMessage.addListener(message => {
 	location.reload();
 });
 
-const loadFromStorage = (key, callback) => {
+export const loadFromStorage = (key, callback) => {
 	chrome.storage.local.get(key, items => {
 		callback(items[key]);
 	});
@@ -99,7 +99,7 @@ const loadFromStorage = (key, callback) => {
  * @param {string[]=} removeKeys
  * @returns {Promise<void>} 失敗したときは通知してから reject する
  */
-const writeToStorage = (items, removeKeys = []) => {
+export const writeToStorage = (items, removeKeys = []) => {
 	return chrome.storage.local.set(items)
 		.then(() => removeKeys.length ? chrome.storage.local.remove(removeKeys) : undefined)
 		.catch(error => {
@@ -108,7 +108,7 @@ const writeToStorage = (items, removeKeys = []) => {
 			throw error;
 		});
 };
-const saveToStorage = (key, value) => {
+export const saveToStorage = (key, value) => {
 	writeToStorage({[key]: value}).catch(() => {});
 };
 
@@ -118,7 +118,7 @@ const saveToStorage = (key, value) => {
  *	bytesInUse: number;
  * }>}
  */
-const fetchUsage = () => {
+export const fetchUsage = () => {
 	return chrome.storage.local.getBytesInUse().then(bytesInUse => ({bytesInUse}));
 };
 
@@ -131,7 +131,7 @@ const fetchUsage = () => {
 * 	function(T): void
 * ]}
 */
-const useSetting = (settingKey, defaultValue) => {
+export const useSetting = (settingKey, defaultValue) => {
 	const storageKey = `setting.${settingKey}`;
 	const [value, setValue] = useState(defaultValue);
 	useEffect(() => {
@@ -158,7 +158,7 @@ const useSetting = (settingKey, defaultValue) => {
  * 	remove: function(T): void
  * }}
  */
-const useList = (load, write) => {
+export const useList = (load, write) => {
 	const [allList, setList] = useState(() => {
 		// 変数に入れないと any ではなく never 型となってしまい、 setList 部分で型エラーとなる問題対策
 		const empty = [];
@@ -264,7 +264,7 @@ const inputCommitDelayMs = 1000;
  * 	inputRef?: any; // TODO: type定義
  * } & Object<string, any>} param0 そのほかは input にそのまま渡す
  */
-const LazyInput = ({
+export const LazyInput = ({
 	value,
 	onCommit,
 	inputRef,
@@ -321,7 +321,7 @@ const titleSize = 40;
  * @param {any=} param0.revision MemoRecordView で描画し直すかの判定にだけ使う
  * @returns
  */
-const RecordView = ({
+export const RecordView = ({
 	types,
 	record,
 	save,
@@ -418,7 +418,7 @@ const RecordView = ({
  * 記録は書き換えられる (mutable) ため record が同じでも中身が変わっていることがある。そのため保存のたびに作り直される一覧を revision に渡し、それも比べる
  * 計測中の記録は経過時間が変わるため、いつも描画し直す
  */
-const MemoRecordView = memo(RecordView, (prev, next) => {
+export const MemoRecordView = memo(RecordView, (prev, next) => {
 	const keys = Object.keys(next);
 	return !!next.record.end && keys.length === Object.keys(prev).length && keys.every(key => prev[key] === next[key]);
 });
@@ -434,7 +434,7 @@ const MemoRecordView = memo(RecordView, (prev, next) => {
  * 	remove: function(TimeRecord): void;
  * }} param0
  */
-const EditTimeForm = ({
+export const EditTimeForm = ({
 	record,
 	prev,
 	next,
@@ -558,7 +558,7 @@ const groupNothingName = '(グループなし)';
  * }} param0
  * @returns
  */
-const TodoRow = ({
+export const TodoRow = ({
 	todo,
 	isTodoEditMode,
 	usingTodoGroup,
@@ -733,7 +733,7 @@ const TodoRow = ({
  * }>} param0
  * @returns
  */
-const Checkbox = ({
+export const Checkbox = ({
 	children,
 	checked,
 	onChange,
@@ -775,7 +775,7 @@ const Checkbox = ({
 };
 
 // forwardRefの型指定が難しいためhookにした
-const useDialog = () => {
+export const useDialog = () => {
 	/** @type {React.MutableRefObject<HTMLDialogElement | null>} */
 	const dialogRef = useRef(null);
 	const showModalDialog = useCallback(() => dialogRef.current?.showModal(), []);
@@ -835,7 +835,7 @@ const useDialog = () => {
 * }>} param0
 * @returns
 */
-const EditModeTab = ({
+export const EditModeTab = ({
 	children,
 	checked,
 	onChange,
@@ -879,7 +879,7 @@ const EditModeTab = ({
  * @param {string} current
  * @returns
  */
-const typesToNamesWithCurrent = (types, current) => {
+export const typesToNamesWithCurrent = (types, current) => {
 	const names = types.map(({name}) => name);
 	return names.includes(current) ? names : [current, ...names];
 };
