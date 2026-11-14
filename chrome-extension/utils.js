@@ -263,9 +263,9 @@ export const addRecordsToTodoWorkTimes = (todoWorkTimes, todoIndexByKey, records
 			result[i] = {...result[i], subtotalByDate: new Map(result[i].subtotalByDate)};
 		}
 		const matched = result[i];
-		matched.total += record.workTimeSeconds;
-
+		// 合計は日付ごとの小計を足して、秒未満の切り捨てで小計の和とずれないようにする
 		for (const [date, seconds] of record.secondsByDate) {
+			matched.total += seconds;
 			matched.subtotalByDate.set(date, (matched.subtotalByDate.get(date) ?? 0) + seconds);
 		}
 	}

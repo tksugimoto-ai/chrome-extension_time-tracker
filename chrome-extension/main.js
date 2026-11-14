@@ -326,6 +326,7 @@ const isLongRunning = record => !!record && !record.end && record.workTimeSecond
  * @param {boolean=} param0.isEditable
  * @param {boolean=} param0.hideDate
  * @param {any=} param0.titleRef // TODO: type定義
+ * @param {number=} param0.targetSeconds 集計する期間に含まれる作業時間。日付を跨いだ記録で全体と違うときは両方を表示する
  * @param {any=} param0.revision MemoRecordView で描画し直すかの判定にだけ使う
  * @returns
  */
@@ -338,13 +339,17 @@ const RecordView = ({
 	isEditable = true, // FIXME: 名前の適切化
 	hideDate = false,
 	titleRef,
+	targetSeconds,
 }) => {
+	const workTimeSeconds = record.workTimeSeconds;
+	// 日付を跨いだ記録は、終了にも日付を表示する
+	const endsOnStartDate = !record.end || record.end <= dayRangeOf(new Date(record.start)).end;
 	// TODO: 縦位置を揃えたい
 	return createElement(
 		React.Fragment,
 		{},
-		`${Formats[hideDate ? 'localeTimeString' : 'localeDateTimeString'](record.start)}～${record.end ? Formats.localeTimeString(record.end) : ''}`,
-		`(${Formats.seconds(record.workTimeSeconds)})`,
+		`${Formats[hideDate ? 'localeTimeString' : 'localeDateTimeString'](record.start)}～${record.end ? Formats[endsOnStartDate ? 'localeTimeString' : 'localeDateTimeString'](record.end) : ''}`,
+		targetSeconds === undefined || targetSeconds === workTimeSeconds ? `(${Formats.seconds(workTimeSeconds)})` : `(${Formats.seconds(targetSeconds)} / 全体 ${Formats.seconds(workTimeSeconds)})`,
 		editTime && createElement(
 			'button',
 			{
@@ -455,19 +460,22 @@ const EditTimeForm = ({
 	const [end, setEnd] = useState(initialEnd);
 	const min = Formats.ISODateTimeString(prev?.end ?? prev?.start ?? 0);
 	const max = Formats.ISODateTimeString(next?.start ?? Date.now());
-	// 計測中に戻せるのは最後の記録だけ
-	const canResume = !next;
-	// 削除した時間帯を、前後の記録で埋めることもできる
+	// 計測中に戻せるのは、今日まで続いた最後の記録だけ (前に終了した記録を戻すと、その間をすべて数えてしまう)
+	const {start: today, end: tomorrow} = dayRangeOf(new Date());
+	const canResume = !next && record.overlaps(today, tomorrow);
+	// 削除した時間帯を、同じ日の前後の記録で埋めることもできる (日を跨ぐ空き時間まで埋めないよう、同じ日に続く記録に限る)
+	const startDay = dayRangeOf(new Date(record.start));
+	const endDay = dayRangeOf(new Date(record.end ?? Date.now()));
 	const removeOptions = [
 		{value: 'remove', label: '削除', message: 'この記録を削除しますか？'},
-		prev && {
+		prev?.overlaps(startDay.start, startDay.end) && {
 			value: 'remove-extend-prev',
 			label: '削除して前の記録を延ばす',
 			message: 'この記録を削除し、前の記録の終了をこの記録の終了まで延ばしますか？',
 			// 消す記録が計測中なら、前の記録が計測中になる
 			beforeRemove: () => prev.setTime(prev.start, record.end),
 		},
-		next && {
+		next?.overlaps(endDay.start, endDay.end) && {
 			value: 'remove-extend-next',
 			label: '削除して次の記録を早める',
 			message: 'この記録を削除し、次の記録の開始をこの記録の開始まで早めますか？',
@@ -1620,7 +1628,7 @@ const App = () => {
 									{
 										key: record.start,
 									},
-									createElement(MemoRecordView, {types, record, save, editTime, isEditable: false, revision: allList}),
+									createElement(MemoRecordView, {types, record, save, editTime, isEditable: false, targetSeconds: record.secondsWithin(targetStartMs, targetEndMs), revision: allList}),
 								);
 							})),
 						);
@@ -1633,7 +1641,7 @@ const App = () => {
 						{
 							key: record.start,
 						},
-						createElement(MemoRecordView, {types, record, save, editTime, isEditable: false, revision: allList}),
+						createElement(MemoRecordView, {types, record, save, editTime, isEditable: false, targetSeconds: record.secondsWithin(targetStartMs, targetEndMs), revision: allList}),
 					);
 				})),
 			);
