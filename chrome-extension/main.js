@@ -8,7 +8,7 @@ import {
 	Formats,
 	todoKeyOf,
 	addRecordsToTodoWorkTimes,
-	addToSubtotalByDate,
+	sumWorkTimeSecondsBy,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
@@ -16,6 +16,7 @@ import {
 import {loadRecords, markUnsaved, planRecordSave} from './record-storage.js';
 
 /** @typedef {import('./utils.js').Todo} Todo */
+/** @typedef {import('./utils.js').WorkTimeTree} WorkTimeTree */
 
 const {
 	createElement,
@@ -900,6 +901,21 @@ const defaultTypes = [{
 	name: '中断',
 }];
 
+/**
+ * @param {{tree: WorkTimeTree[], ordered?: boolean}} param0
+ */
+const WorkTimeTreeList = ({tree, ordered}) => createElement(ordered ? 'ol' : 'ul', {}, tree.map(({key, seconds, children}) => {
+	return createElement(
+		'li',
+		{key},
+		// キーが空になるのはタイトルだけ
+		`${key || '(タイトルなし)'}: ${Formats.seconds(seconds)}`,
+		children && createElement(WorkTimeTreeList, {tree: children}),
+	);
+}));
+// 閉じたダイアログの中身も毎秒の再描画で作り直さないよう、tree が変わったときだけ描画する
+const MemoWorkTimeTreeList = memo(WorkTimeTreeList);
+
 const App = () => {
 	const {
 		allList: todos,
@@ -1032,7 +1048,7 @@ const App = () => {
 	}, [allList]);
 
 	/** ToDo の時間・日ごとの合計ボタンで開く、日付別の小計 (開いた時点の値) */
-	/** @type{ReturnType<typeof useState<{title: string, total: number, subtotalByDate: Map<string, number>}>>} */
+	/** @type{ReturnType<typeof useState<{title: string, total: number, byDate: WorkTimeTree[]}>>} */
 	const [subtotal, setSubtotal] = useState();
 	const {
 		Dialog: SubtotalDialog,
@@ -1304,7 +1320,8 @@ const App = () => {
 									isDuplicate: todoIndexByKey.get(key) !== i,
 									showSubtotal: () => {
 										const {todo: {type, title}, total, subtotalByDate} = todoWorkTimes[i];
-										setSubtotal({title: `${type}(${title})`, total, subtotalByDate});
+										const byDate = [...subtotalByDate].map(([key, seconds]) => ({key, seconds}));
+										setSubtotal({title: `${type}(${title})`, total, byDate});
 										showSubtotalModalDialog();
 									},
 								},
@@ -1557,12 +1574,19 @@ const App = () => {
 			createElement('button', {
 				onClick: () => {
 					// 毎秒の再描画で集計し直さないよう、押したときだけ集計する
-					/** @type{Map<string, number>} */
-					const subtotalByDate = new Map();
-					targetWorkRecords.forEach(record => addToSubtotalByDate(subtotalByDate, record));
-					// 計測中の記録の時間は描画時点から進んでいるので、合計も押したときの小計から出す
-					const total = [...subtotalByDate.values()].reduce((acc, seconds) => acc + seconds, 0);
-					setSubtotal({title: '日ごとの勤務時間', total, subtotalByDate});
+					// 計測中の記録の時間は描画時点から進んでいるので、各記録の時間はここで1回だけ求め、合計もそこから出す
+					const items = targetWorkRecords.map(record => ({record, seconds: record.workTimeSeconds}));
+					// 内訳は集計結果に合わせ、分類ごと。「同一タイトルで集約」のときはその下にタイトルごと
+					/** @type{(function(TimeRecord): string)[]} */
+					const keyOfs = [({type}) => type];
+					if (isAggregationVisible) keyOfs.push(({title}) => title || '');
+					// 日付は日付順のまま、各日の内訳だけ長い順にする
+					const byDate = [...Map.groupBy(items, ({record}) => Formats.localeDateString(record.start))].map(([date, sameDateItems]) => {
+						const children = sumWorkTimeSecondsBy(sameDateItems, keyOfs);
+						return {key: date, seconds: children.reduce((acc, {seconds}) => acc + seconds, 0), children};
+					});
+					const total = byDate.reduce((acc, {seconds}) => acc + seconds, 0);
+					setSubtotal({title: '日ごとの勤務時間', total, byDate});
 					showSubtotalModalDialog();
 				},
 			}, '日ごとの合計'),
@@ -1683,13 +1707,7 @@ const App = () => {
 			{},
 			createElement('h3', {}, subtotal?.title),
 			subtotal && createElement('p', {}, `合計: ${Formats.seconds(subtotal.total)}`),
-			createElement(
-				'ol',
-				{},
-				Array.from(subtotal?.subtotalByDate?.entries() ?? []).map(([date, seconds]) => {
-					return createElement('li', {key: date}, `${date}: ${Formats.seconds(seconds)}`);
-				}),
-			),
+			subtotal && createElement(MemoWorkTimeTreeList, {tree: subtotal.byDate, ordered: true}),
 		),
 	);
 };
