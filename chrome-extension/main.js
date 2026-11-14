@@ -1280,12 +1280,12 @@ const App = () => {
 				 */
 				const createList = (list, listKey) => {
 					if (list.length === 0) return createElement('ul', {}, createElement('li', {}, 'ToDoなし'));
-					// 最後に計測した日時が新しい ToDo と計測中の ToDo だけを表示し、残りは畳む。並び順は変えない
-					// 計測したことがない ToDo は新しいものとして扱う
+					// 計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo だけを表示し、残りは畳む。並び順は変えない
 					// 同じ分類・タイトルの ToDo は先頭の ToDo に集計されるので、先頭の日時を使う
-					const lastWorkedAts = new Map(list.map(todo => [todo, todoWorkTimes[todoIndexByKey.get(todoKeyOf(todo))].lastWorkedAt ?? Number.MAX_SAFE_INTEGER]));
-					const recentTodos = new Set(list.toSorted((a, b) => lastWorkedAts.get(b) - lastWorkedAts.get(a)).slice(0, recentTodoCount));
-					const collapsedList = list.filter(todo => recentTodos.has(todo) || todoKeyOf(todo) === currentKey);
+					const lastWorkedAts = new Map(list.map(todo => [todo, todoWorkTimes[todoIndexByKey.get(todoKeyOf(todo))].lastWorkedAt]));
+					const recentTodos = new Set(list.filter(todo => lastWorkedAts.get(todo) !== undefined)
+						.toSorted((a, b) => lastWorkedAts.get(b) - lastWorkedAts.get(a)).slice(0, recentTodoCount));
+					const collapsedList = list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoKeyOf(todo) === currentKey);
 					const oldTodoCount = list.length - collapsedList.length;
 					const isExpanded = expandedTodoLists.has(listKey);
 					const visibleList = isExpanded ? list : collapsedList;
