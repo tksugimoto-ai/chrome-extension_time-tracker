@@ -1166,6 +1166,22 @@ const App = () => {
 						},
 						'削除',
 					),
+					isTypeEditMode && createElement('button', {
+						disabled: i === 0,
+						onClick: () => {
+							// FIXME: mutableをやめる
+							swap(types, i, i - 1);
+							saveType();
+						},
+					}, '上へ移動'),
+					isTypeEditMode && createElement('button', {
+						disabled: i === types.length - 1,
+						onClick: () => {
+							// FIXME: mutableをやめる
+							swap(types, i, i + 1);
+							saveType();
+						},
+					}, '下へ移動'),
 					createElement(
 						'button',
 						{
