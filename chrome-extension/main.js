@@ -916,7 +916,7 @@ const App = () => {
 	const [newTodoTitle, setNewTodoTitle] = useState('');
 	const [newTodoMemo, setNewTodoMemo] = useState('');
 	const [newTodoGroup, setNewTodoGroup] = useState('');
-	// 古い ToDo を表示している一覧（createList の listKey）。開き直すと畳んだ状態に戻る
+	// 古い ToDo を表示しているグループ（グループなしは undefined）。開き直すと畳んだ状態に戻る
 	const [expandedTodoLists, setExpandedTodoLists] = useState(() => new Set());
 
 	const {
@@ -1276,16 +1276,17 @@ const App = () => {
 				const currentKey = currentRecord && todoKeyOf(currentRecord);
 				/**
 				 * @param {Todo[]} list
-				 * @param {string | null} [listKey] グループ名。グループなしは undefined、グループを使わないときは null
+				 * @param {string} [listKey] グループ名。グループなしは undefined
 				 */
 				const createList = (list, listKey) => {
 					if (list.length === 0) return createElement('ul', {}, createElement('li', {}, 'ToDoなし'));
-					// 計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo だけを表示し、残りは畳む。並び順は変えない
+					// グループごとの一覧では、計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo だけを表示し、残りは畳む。並び順は変えない
+					// グループを使わないときは畳まずに全件表示する
 					// 同じ分類・タイトルの ToDo は先頭の ToDo に集計されるので、先頭の日時を使う
 					const lastWorkedAts = new Map(list.map(todo => [todo, todoWorkTimes[todoIndexByKey.get(todoKeyOf(todo))].lastWorkedAt]));
 					const recentTodos = new Set(list.filter(todo => lastWorkedAts.get(todo) !== undefined)
 						.toSorted((a, b) => lastWorkedAts.get(b) - lastWorkedAts.get(a)).slice(0, recentTodoCount));
-					const collapsedList = list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoKeyOf(todo) === currentKey);
+					const collapsedList = !usingTodoGroup ? list : list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoKeyOf(todo) === currentKey);
 					const oldTodoCount = list.length - collapsedList.length;
 					const isExpanded = expandedTodoLists.has(listKey);
 					const visibleList = isExpanded ? list : collapsedList;
@@ -1404,7 +1405,7 @@ const App = () => {
 						}),
 					);
 				}
-				return createList(todos, null);
+				return createList(todos);
 			})(),
 			'※ ToDoごとの経過時間の集計には分類・タイトルのみを使用し、メモ / URLの違いを無視する',
 			// TODO: 表示方法調整(グループ別対応？)
