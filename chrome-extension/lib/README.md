@@ -9,7 +9,7 @@ npm パッケージに入っているファイルを、中身を変えずにそ�
 
 - tarball: <https://registry.npmjs.org/react/-/react-18.3.1.tgz>, <https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz>
 - ライセンス: MIT（各ファイル先頭のコメント）
-- production build を使う理由: development build は約 1.2MB あり、毎秒の再描画にかかる時間も倍以上になる。React の警告を見たいときは、同じパッケージの `umd/*.development.js` に一時的に差し替える。
+- production build を使う理由: development build は約 1.2MB あり、毎秒の再描画にかかる時間も倍以上になる。React の警告を見たいときは、同じパッケージの `umd/*.development.js` に一時的に差し替える（`main.html` の script タグ2か所のファイル名も書き換える）。
 
 ## 取り直し方
 
