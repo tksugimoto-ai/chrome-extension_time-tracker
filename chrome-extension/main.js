@@ -29,13 +29,15 @@ const {
 
 
 /**
- *
- * @param {any[]} array
+ * 2つの要素を入れ替えた新しい配列を返す
+ * @template T
+ * @param {T[]} array
  * @param {number} index1
  * @param {number} index2
+ * @returns {T[]}
  */
-const swap = (array, index1, index2) => {
-	[array[index1], array[index2]] = [array[index2], array[index1]];
+const swapped = (array, index1, index2) => {
+	return array.with(index1, array[index2]).with(index2, array[index1]);
 };
 
 const domParser = new DOMParser();
@@ -155,6 +157,7 @@ const useSetting = (settingKey, defaultValue) => {
  * 	allList: T[]
  * 	add: function(T): void
  * 	save: function(): void
+ * 	saveList: function(function(T[]): T[]): void
  * 	remove: function(T): void
  * }}
  */
@@ -174,25 +177,27 @@ const useList = (load, write) => {
 	useEffect(() => {
 		load(update);
 	}, [load, update]);
+	/** 最新の一覧から作った新しい一覧に置き換えて保存する */
+	const saveList = useCallback(change => {
+		const newList = change(latestListRef.current);
+		write(newList);
+		update(newList);
+	}, [write, update]);
 	const add = useCallback(value => {
-		const newList = [...latestListRef.current, value];
-		write(newList);
-		update(newList);
-	}, [write, update]);
+		saveList(list => [...list, value]);
+	}, [saveList]);
 	const save = useCallback(() => {
-		write(latestListRef.current);
 		// 記録は書き換えられる (mutable) ため、作り直して描画し直す
-		update([...latestListRef.current]);
-	}, [write, update]);
+		saveList(list => [...list]);
+	}, [saveList]);
 	const remove = useCallback(value => {
-		const newList = latestListRef.current.filter(v => v !== value);
-		write(newList);
-		update(newList);
-	}, [write, update]);
+		saveList(list => list.filter(v => v !== value));
+	}, [saveList]);
 	return {
 		allList,
 		add,
 		save,
+		saveList,
 		remove,
 	};
 };
@@ -918,13 +923,16 @@ const App = () => {
 		allList: types,
 		add: addType,
 		save: saveType,
+		saveList: saveTypeList,
+		remove: removeType,
 	} = useStorageList('type', {
 		defaultValue: defaultTypes,
 	});
 	const {
 		allList: todoGroups,
 		add: addTodoGroup,
-		save: saveTodoGroup,
+		saveList: saveTodoGroupList,
+		remove: removeTodoGroup,
 	} = useStorageList('todo-group', {
 		defaultValue: defaultTodoGroups,
 	});
@@ -1157,10 +1165,7 @@ const App = () => {
 						{
 							onClick: () => {
 								if (window.confirm(`「${type.name}」を削除しますか？`)) {
-									// FIXME: mutableをやめる
-									// types.toSpliced が使える
-									types.splice(i, 1);
-									saveType();
+									removeType(type);
 								}
 							},
 						},
@@ -1169,17 +1174,13 @@ const App = () => {
 					isTypeEditMode && createElement('button', {
 						disabled: i === 0,
 						onClick: () => {
-							// FIXME: mutableをやめる
-							swap(types, i, i - 1);
-							saveType();
+							saveTypeList(list => swapped(list, i, i - 1));
 						},
 					}, '上へ移動'),
 					isTypeEditMode && createElement('button', {
 						disabled: i === types.length - 1,
 						onClick: () => {
-							// FIXME: mutableをやめる
-							swap(types, i, i + 1);
-							saveType();
+							saveTypeList(list => swapped(list, i, i + 1));
 						},
 					}, '下へ移動'),
 					createElement(
@@ -1343,11 +1344,7 @@ const App = () => {
 										createElement('button', {
 											onClick: () => {
 												if (window.confirm(`グループ「${group}」を削除しますか？`)) {
-													// FIXME: mutableをやめる
-													// types.toSpliced が使える
-													const i = todoGroups.indexOf(group);
-													todoGroups.splice(i, 1);
-													saveTodoGroup();
+													removeTodoGroup(group);
 												}
 											},
 										}, '削除'),
@@ -1359,31 +1356,25 @@ const App = () => {
 													alert(`グループ「${newName}」は既に存在します`);
 													return;
 												}
-												// FIXME: mutableをやめる
-												todoGroups[groupIndex] = newName;
 												// ToDo はグループを名前で持つので、合わせて書き換えないと「(グループなし)」になる
 												const groupTodos = todos.filter(todo => todo.group === group);
 												groupTodos.forEach(todo => {
 													todo.group = newName;
 												});
-												saveTodoGroup();
+												saveTodoGroupList(list => list.with(groupIndex, newName));
 												if (groupTodos.length) saveTodo();
 											},
 										}, '名前変更'),
 										createElement('button', {
 											disabled: groupIndex === 0,
 											onClick: () => {
-												// FIXME: mutableをやめる
-												swap(todoGroups, groupIndex, groupIndex - 1);
-												saveTodoGroup();
+												saveTodoGroupList(list => swapped(list, groupIndex, groupIndex - 1));
 											},
 										}, '上へ移動'),
 										createElement('button', {
 											disabled: groupIndex === todoGroups.length - 1,
 											onClick: () => {
-												// FIXME: mutableをやめる
-												swap(todoGroups, groupIndex, groupIndex + 1);
-												saveTodoGroup();
+												saveTodoGroupList(list => swapped(list, groupIndex, groupIndex + 1));
 											},
 										}, '下へ移動'),
 									),
