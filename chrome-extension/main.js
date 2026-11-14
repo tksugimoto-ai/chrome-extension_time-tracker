@@ -539,6 +539,8 @@ const EditTimeForm = ({
 };
 
 const groupNothingName = '(グループなし)';
+/** 期限がこれより近い ToDo を「期限が近い」とする */
+const closeToDeadlineMs = 3 * 24 * 60 * 60 * 1000;
 
 /**
  * @param {{
@@ -638,7 +640,7 @@ const TodoRow = ({
 				},
 			},
 		) : todo.deadline && createElement('span', {
-			className: todo.deadline < Date.now() ? 'expired-deadline' : todo.deadline < (Date.now() + 3 * 24 * 60 * 60 * 1000) ? 'close-to-deadline' : null,
+			className: todo.deadline < Date.now() ? 'expired-deadline' : todo.deadline < (Date.now() + closeToDeadlineMs) ? 'close-to-deadline' : null,
 		}, `(-${Formats.localeDeadlineDateString(todo.deadline)})`)),
 		' [',
 		createElement('span', {
@@ -1280,13 +1282,15 @@ const App = () => {
 				 */
 				const createList = (list, listKey) => {
 					if (list.length === 0) return createElement('ul', {}, createElement('li', {}, 'ToDoなし'));
-					// グループごとの一覧では、計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo だけを表示し、残りは畳む。並び順は変えない
+					// グループごとの一覧では、計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo・
+					// 期限切れか期限が近い ToDo（期限を管理するとき）だけを表示し、残りは畳む。並び順は変えない
 					// グループを使わないときは畳まずに全件表示する
 					// 同じ分類・タイトルの ToDo は先頭の ToDo に集計されるので、先頭の日時を使う
 					const lastWorkedAts = new Map(list.map(todo => [todo, todoWorkTimes[todoIndexByKey.get(todoKeyOf(todo))].lastWorkedAt]));
 					const recentTodos = new Set(list.filter(todo => lastWorkedAts.get(todo) !== undefined)
 						.toSorted((a, b) => lastWorkedAts.get(b) - lastWorkedAts.get(a)).slice(0, recentTodoCount));
-					const collapsedList = !usingTodoGroup ? list : list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoKeyOf(todo) === currentKey);
+					const collapsedList = !usingTodoGroup ? list : list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoKeyOf(todo) === currentKey
+						|| (usingTodoDeadline && !!todo.deadline && todo.deadline < Date.now() + closeToDeadlineMs));
 					const oldTodoCount = list.length - collapsedList.length;
 					const isExpanded = expandedTodoLists.has(listKey);
 					const visibleList = isExpanded ? list : collapsedList;
