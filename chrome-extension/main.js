@@ -1494,7 +1494,7 @@ const App = () => {
 		createElement('h2', {}, '現在'),
 		// 記録が替わったら入力欄を作り直し、前の記録への入力が新しい記録の入力欄に残らないようにする
 		currentRecord ? createElement(RecordView, {key: currentRecord.start, titleRef: currentTitleRef, types, record: currentRecord, save, editTime, hideDate: currentRecord.start >= today}) : '未開始',
-		isLongRunning(currentRecord) && createElement('p', {className: 'warning'}, `${LONG_RUNNING_HOURS}時間以上計測中です。終了し忘れていたら「時刻編集」で終了時刻を直してください`),
+		isLongRunning(currentRecord) && createElement('p', {className: 'warning'}, `${LONG_RUNNING_HOURS}時間を超えて計測中です。終了し忘れていたら「時刻編集」で終了時刻を直してください`),
 		createElement('h2', {}, '履歴'),
 		createElement('ol', {}, list.map((record) => {
 			return createElement(
