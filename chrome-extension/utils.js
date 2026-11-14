@@ -34,10 +34,7 @@ export const dayOf = (date, dayOffset) => {
  * @param {Date} date
  * @returns {{start: number, end: number}} [start, end) のミリ秒
  */
-export const dayRangeOf = date => {
-	const start = startOfDate(new Date(date));
-	return {start: start.getTime(), end: dayOf(start, 1).getTime()};
-};
+export const dayRangeOf = date => ({start: dayOf(date, 0).getTime(), end: dayOf(date, 1).getTime()});
 
 export class TimeRecord {
 	constructor(args) {
