@@ -77,6 +77,9 @@ test('終了・一つ前を再開をアクセスキーで操作できる', async
 	// キーが入っている欄でも、他で使っているキーへの上書きはできない（自分のキーは入れ直せる）
 	await stopKeyInput.fill('R');
 	assert.equal(await stopKeyInput.evaluate(e => e.validity.patternMismatch), true, '再開の R');
+	// 不正なまま欄から離れると、保存されている値 (Q) に戻る
+	await stopKeyInput.blur();
+	assert.equal(await stopKeyInput.inputValue(), 'Q');
 	await stopKeyInput.fill('q');
 	assert.equal(await stopKeyInput.evaluate(e => e.validity.patternMismatch), false, '自分の q');
 	await stopKeyInput.fill('X');
