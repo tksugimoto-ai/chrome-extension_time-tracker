@@ -1,6 +1,7 @@
 // 時刻編集の「確定して前後の記録も合わせる」の確認
 //   - 何も変えていない・変えた側に前後の記録がないときは押せない
 //   - 開始を変えたときは前の記録の終了だけ、終了を変えたときは次の記録の開始だけを合わせる
+//   - 開始と終了を両方変えたときは、前後の両方を合わせる
 //   - 「確定」だけなら前後の記録は変わらない
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -78,14 +79,26 @@ test('時刻編集で前後の記録も合わせられる', async () => {
 		{...n, start: t0 + 1300e3},
 	]);
 
-	// 5. 「確定」だけなら前後は変わらない
+	// 5. 開始と終了を両方変えると、前 (P) の終了と次 (N) の開始を両方合わせる
+	await openEdit('M');
+	await startInput.fill(local(t0 + 720e3));
+	await endInput.fill(local(t0 + 1280e3));
+	await adjust.click();
+	await dialog.waitFor({state: 'detached'});
+	assert.deepEqual(await records(), [
+		{...p, start: t0 + 60e3, end: t0 + 720e3},
+		{...m, start: t0 + 720e3, end: t0 + 1280e3},
+		{...n, start: t0 + 1280e3},
+	]);
+
+	// 6. 「確定」だけなら前後は変わらない
 	await openEdit('M');
 	await startInput.fill(local(t0 + 760e3));
 	await close();
 	assert.deepEqual(await records(), [
-		{...p, start: t0 + 60e3, end: t0 + 700e3},
-		{...m, start: t0 + 760e3, end: t0 + 1300e3},
-		{...n, start: t0 + 1300e3},
+		{...p, start: t0 + 60e3, end: t0 + 720e3},
+		{...m, start: t0 + 760e3, end: t0 + 1280e3},
+		{...n, start: t0 + 1280e3},
 	]);
 
 	assert.deepEqual(errors, []);
