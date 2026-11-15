@@ -12,6 +12,9 @@ import {
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
+	swapped,
+	is勤務外,
+	typesToNamesWithCurrent,
 } from '../chrome-extension/utils.js';
 
 // 実行環境のタイムゾーンに依存しないよう、日時はローカル時刻で組み立てる
@@ -225,5 +228,30 @@ describe('createDebouncedWriter', () => {
 		mock.timers.tick(1000);
 		writer.flush();
 		assert.deepEqual(written, ['a']);
+	});
+});
+
+describe('swapped', () => {
+	it('2 つの要素を入れ替えた新しい配列を返し、元の配列は変えない', () => {
+		const array = ['a', 'b', 'c'];
+		assert.deepEqual(swapped(array, 0, 2), ['c', 'b', 'a']);
+		assert.deepEqual(swapped(array, 1, 0), ['b', 'a', 'c']);
+		assert.deepEqual(array, ['a', 'b', 'c']);
+	});
+});
+
+describe('is勤務外', () => {
+	it('昼休憩と中断だけが勤務外', () => {
+		assert.deepEqual(['昼休憩', '中断', '開発', 'ミーティング', ''].map(is勤務外), [true, true, false, false, false]);
+	});
+});
+
+describe('typesToNamesWithCurrent', () => {
+	const types = [{name: '開発'}, {name: 'MTG'}];
+	it('分類の名前の一覧を返す', () => {
+		assert.deepEqual(typesToNamesWithCurrent(types, 'MTG'), ['開発', 'MTG']);
+	});
+	it('現在の分類が一覧になければ先頭に足す', () => {
+		assert.deepEqual(typesToNamesWithCurrent(types, '削除した分類'), ['削除した分類', '開発', 'MTG']);
 	});
 });

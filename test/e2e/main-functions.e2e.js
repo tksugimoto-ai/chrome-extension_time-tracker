@@ -1,4 +1,4 @@
-// main.js の関数 (クリップボード・分類・storage の読み書き) を、拡張のページで 1 つずつ確かめる
+// main.js の関数 (クリップボード・storage の読み書き) を、拡張のページで 1 つずつ確かめる
 import {describe, test} from 'node:test';
 import assert from 'node:assert/strict';
 import {openComponentPage, readStorage, resetStorage} from './extension.js';
@@ -61,24 +61,6 @@ describe('readClipboardData', () => {
 		assert.equal(await read({}), null);
 		assert.equal(await read({'text/html': '<a href="https://example.com/">x</a>'}), null);
 	});
-});
-
-test('is勤務外: 昼休憩と中断だけが勤務外', async () => {
-	assert.deepEqual(await page.evaluate(() => ['昼休憩', '中断', '開発', 'ミーティング', ''].map(window.main.is勤務外)), [true, true, false, false, false]);
-});
-
-test('typesToNamesWithCurrent: 現在の分類が一覧になければ先頭に足す', async () => {
-	const result = await page.evaluate(() => {
-		const types = [{name: '開発'}, {name: 'MTG'}];
-		return [
-			window.main.typesToNamesWithCurrent(types, 'MTG'),
-			window.main.typesToNamesWithCurrent(types, '削除した分類'),
-		];
-	});
-	assert.deepEqual(result, [
-		['開発', 'MTG'],
-		['削除した分類', '開発', 'MTG'],
-	]);
 });
 
 describe('storage の読み書き', () => {

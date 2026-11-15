@@ -52,6 +52,19 @@ describe('useList', () => {
 		assert.deepEqual(await writes(), [['a', 'b', 'c'], ['b', 'c']]);
 	});
 
+	test('saveList は最新の一覧から作った一覧を書き込み、その一覧で描画し直す', async () => {
+		await mount();
+		await waitFor(() => window.state.hook.allList.length === 2);
+		await page.evaluate(() => {
+			// 描画を待たずに続けて呼んでも、saveList には add した後の一覧が渡る
+			window.state.hook.add('c');
+			window.state.hook.saveList(list => list.toReversed());
+		});
+		await waitFor(() => window.state.hook.allList[0] === 'c');
+		assert.deepEqual(await allList(), ['c', 'b', 'a']);
+		assert.deepEqual(await writes(), [['a', 'b', 'c'], ['c', 'b', 'a']]);
+	});
+
 	test('save は最新の一覧を書き込み、作り直した一覧で描画し直す', async () => {
 		await mount();
 		await waitFor(() => window.state.hook.allList.length === 2);
