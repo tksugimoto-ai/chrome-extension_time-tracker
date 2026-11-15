@@ -474,6 +474,7 @@ const EditTimeForm = ({
 	// 変えた側 (開始なら前、終了なら次) の記録だけを合わせる
 	const adjustPrev = start !== initialStart ? samePrev : undefined;
 	const adjustNext = end !== initialEnd ? sameNext : undefined;
+	const canAdjust = !!adjustPrev || !!adjustNext;
 	return createElement(
 		'form',
 		{
@@ -534,7 +535,12 @@ const EditTimeForm = ({
 			canResume && '(空欄にすると計測中に戻る)',
 		),
 		createElement('button', {}, '確定'),
-		createElement('button', {value: 'save-adjust', disabled: !adjustPrev && !adjustNext}, '確定して前後の記録も合わせる'),
+		createElement('button', {
+			value: 'save-adjust',
+			disabled: !canAdjust,
+			// 押せないときに理由が分かるようにする
+			title: canAdjust ? undefined : '開始か終了を変えると、変えた側の同じ日の前後の記録に合わせられます',
+		}, '確定して前後の記録も合わせる'),
 		createElement('br'),
 		removeOptions.map(({value, label, message}) => createElement('button', {
 			key: value,
