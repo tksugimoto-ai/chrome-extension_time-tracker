@@ -206,7 +206,7 @@ export const useList = (load, write) => {
  * @param {Object[]=} options.defaultValue
  * @returns {ReturnType<typeof useList<T>>}
  */
-const useStorageList = (storageKey, {
+export const useStorageList = (storageKey, {
 	transform,
 	defaultValue,
 } = {}) => {
@@ -223,7 +223,7 @@ const useStorageList = (storageKey, {
  * 記録の一覧。保存は開始月ごとのキーに分け、変わった月だけ書き込む
  * @returns {ReturnType<typeof useList<TimeRecord>>}
  */
-const useRecordList = () => {
+export const useRecordList = () => {
 	/**
 	 * 月ごとのキーに前回保存した JSON（保存のたびに作り直す）
 	 * 読み込むまでは null（storage の内容が分からないうちに書き込むと、その月の他の記録を消してしまう）

@@ -1,46 +1,9 @@
-// main.js のコンポーネント・関数を、拡張のページで 1 つずつ動かして確かめる
-// main.html が読み込んだ main.js を import し直す（同じ URL なので同じモジュールが返り、もう一度は実行されない）
-import {afterEach, describe, test} from 'node:test';
+// main.js の入力部品 (LazyInput・Checkbox・EditModeTab・useDialog) を 1 つずつ動かして確かめる
+import {describe, test} from 'node:test';
 import assert from 'node:assert/strict';
-import {launchExtension} from './extension.js';
+import {openComponentPage} from './extension.js';
 
-const {ctx, base, errors} = await launchExtension();
-const page = await ctx.newPage();
-// LazyInput の待ち時間をテストから進める
-await page.clock.install();
-await page.goto(`${base}/main.html`);
-await page.evaluate(async base => {
-	window.main = await import(`${base}/main.js`);
-	window.mounted = [];
-	// テストごとに別の要素へ描画する。コールバックの呼び出しは window.calls[name] に残す
-	window.calls = {};
-	window.spy = name => (...args) => (window.calls[name] ??= []).push(args);
-	window.render = element => {
-		const container = document.createElement('div');
-		container.id = 'component-under-test';
-		document.body.append(container);
-		const root = ReactDOM.createRoot(container);
-		root.render(element);
-		window.mounted.push(() => {
-			root.unmount();
-			container.remove();
-		});
-	};
-}, base);
-// ここから時計を止め、runFor で進めた分だけ時間がたつようにする
-await page.clock.pauseAt(Date.now() + 1000);
-const container = page.locator('#component-under-test');
-const calls = name => page.evaluate(name => window.calls[name] ?? [], name);
-
-afterEach(async () => {
-	await page.evaluate(() => {
-		window.mounted.splice(0).forEach(unmount => unmount());
-		window.calls = {};
-		delete window.setLazyInputValue;
-	});
-	// エラーは、起きたテストで失敗させる
-	assert.deepEqual(errors.splice(0), []);
-});
+const {page, container, calls, waitFor} = await openComponentPage();
 
 describe('LazyInput', () => {
 	const mount = value => page.evaluate(value => window.render(React.createElement(window.main.LazyInput, {
@@ -91,13 +54,12 @@ describe('LazyInput', () => {
 	test('外から value が変わると表示も変わる', async () => {
 		await page.evaluate(() => window.render(React.createElement(() => {
 			const [value, setValue] = React.useState('before');
-			window.setLazyInputValue = setValue;
+			window.state.setValue = setValue;
 			return React.createElement(window.main.LazyInput, {value, onCommit: () => {}});
 		})));
 		assert.equal(await input.inputValue(), 'before');
-		await page.evaluate(() => window.setLazyInputValue('after'));
-		// 時計を止めているので、requestAnimationFrame ではなく一定の間隔で見る
-		await page.waitForFunction(() => document.querySelector('#component-under-test input').value === 'after', undefined, {polling: 100});
+		await page.evaluate(() => window.state.setValue('after'));
+		await waitFor(() => document.querySelector('#component-under-test input').value === 'after');
 	});
 });
 
@@ -125,16 +87,35 @@ test('EditModeTab: 選んでいるタブに selected が付き、押すと onCha
 	assert.deepEqual(await calls('change'), [[false]]);
 });
 
-test('typesToNamesWithCurrent: 現在の分類が一覧になければ先頭に足す', async () => {
-	const result = await page.evaluate(() => {
-		const types = [{name: '開発'}, {name: 'MTG'}];
-		return [
-			window.main.typesToNamesWithCurrent(types, 'MTG'),
-			window.main.typesToNamesWithCurrent(types, '削除した分類'),
-		];
+describe('useDialog', () => {
+	const mount = () => page.evaluate(() => window.render(React.createElement(() => {
+		const {Dialog, showModalDialog} = window.main.useDialog();
+		return React.createElement(React.Fragment, {},
+			React.createElement('button', {onClick: showModalDialog}, 'ダイアログを開く'),
+			React.createElement(Dialog, {}, 'ダイアログの中身'),
+		);
+	})));
+	const dialog = container.locator('dialog');
+	const isOpen = () => dialog.evaluate(d => d.open);
+
+	test('showModalDialog で中身ごと開き、「閉じる」で閉じる', async () => {
+		await mount();
+		assert.equal(await isOpen(), false);
+		await container.getByRole('button', {name: 'ダイアログを開く'}).click();
+		assert.equal(await isOpen(), true);
+		assert.equal(await dialog.evaluate(d => d.matches(':modal')), true);
+		assert.match(await dialog.textContent(), /ダイアログの中身/);
+		await dialog.getByRole('button', {name: '閉じる'}).click();
+		assert.equal(await isOpen(), false);
 	});
-	assert.deepEqual(result, [
-		['開発', 'MTG'],
-		['削除した分類', '開発', 'MTG'],
-	]);
+
+	test('中身の外 (背景) を押すと閉じ、中身を押しても閉じない', async () => {
+		await mount();
+		await container.getByRole('button', {name: 'ダイアログを開く'}).click();
+		await dialog.getByText('ダイアログの中身').click();
+		assert.equal(await isOpen(), true);
+		// 中身の外 (背景・余白) を押したときは、クリックの target が dialog 自身になる
+		await dialog.click({position: {x: 1, y: 1}});
+		assert.equal(await isOpen(), false);
+	});
 });
