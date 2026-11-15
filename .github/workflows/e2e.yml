@@ -1,0 +1,40 @@
+name: e2e
+
+# 拡張・E2E・依存が変わったときだけ動かす（Chromium を毎回ダウンロードするため）
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'chrome-extension/**'
+      - 'test/e2e/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/e2e.yml'
+  pull_request:
+    paths:
+      - 'chrome-extension/**'
+      - 'test/e2e/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # package.json の playwright と同じ版の Chromium（拡張を読み込むので headless shell ではなく本体）
+      - run: npx playwright install --with-deps --no-shell chromium
+      - run: npm run test:e2e
