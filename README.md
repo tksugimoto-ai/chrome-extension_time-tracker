@@ -46,4 +46,5 @@ npm run test:e2e # 初回は npx playwright install --no-shell chromium が必�
 - 型チェック (`npm run typecheck`) の対象は `chrome-extension/` 直下の JS ファイル（`lib/` は除く）
 - テストは Node.js 組み込みのテストランナー (`node:test`) で、`test/*.test.js` に置く
 - E2E テストは拡張を読み込んだ Chromium を Playwright で動かすもので、`test/e2e/*.e2e.js` に置く
+  - `playwright` は版を固定している（`^` を付けない）。Claude Code のクラウド環境には、イメージに入っている版 (1.63.0) 用の Chromium しかなく、Playwright は自分の版に対応する Chromium しか使わないため。環境の版が変わったら合わせて上げる
 - テストしたい処理は `chrome-extension/main.js` から ES Modules に切り出して import する（例: `chrome-extension/utils.js`。まとまりが大きくなったら分野ごとのモジュールに分ける）
