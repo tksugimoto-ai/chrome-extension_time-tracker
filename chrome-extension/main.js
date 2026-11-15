@@ -904,6 +904,10 @@ const defaultTypes = [{
 	name: '中断',
 }];
 
+/** 記録中の終了・一つ前の再開ボタンのアクセスキー（分類のアクセスキーには使えない） */
+const stopAccessKey = 'Q';
+const resumeAccessKey = 'R';
+
 const App = () => {
 	const {
 		allList: todos,
@@ -996,7 +1000,7 @@ const App = () => {
 	}, []);
 
 	const usedAccessKeys = useMemo(() => {
-		return types.map(type => type.accessKey).filter(Boolean).flatMap(c => {
+		return [stopAccessKey, resumeAccessKey, ...types.map(type => type.accessKey)].filter(Boolean).flatMap(c => {
 			// アクセスキーは大文字小文字を区別しない
 			const L = c.toLowerCase();
 			const U = c.toUpperCase();
@@ -1065,6 +1069,9 @@ const App = () => {
 	const list = allList.filter(record => record.isDateOf(startOfDate()));
 
 	const currentRecord = list[list.length - 1];
+	const isRecording = Boolean(currentRecord && !currentRecord.end);
+	// 計測中なら一つ前の記録、停止中なら最後の記録を再開する
+	const resumeTarget = isRecording ? list.at(-2) : currentRecord;
 
 	const [targetDate, setTargetDate] = useState(startOfDate());
 	/** 集計する最終日 (この日を含む)。未指定なら上限なし */
@@ -1494,7 +1501,30 @@ const App = () => {
 		),
 		createElement('h2', {}, '現在'),
 		// 記録が替わったら入力欄を作り直し、前の記録への入力が新しい記録の入力欄に残らないようにする
-		currentRecord ? createElement(RecordView, {key: currentRecord.start, titleRef: currentTitleRef, types, record: currentRecord, save, editTime, hideDate: true}) : '未開始',
+		currentRecord ? createElement(RecordView, {key: currentRecord.start, titleRef: currentTitleRef, types, record: currentRecord, save, editTime, isEditable: false, hideDate: true}) : '未開始',
+		createElement(
+			'button',
+			{
+				accessKey: stopAccessKey,
+				disabled: !isRecording,
+				onClick: () => {
+					// FIXME: mutableをやめる
+					currentRecord.finish();
+					save();
+				},
+			},
+			`終了 (${stopAccessKey})`,
+		),
+		createElement(
+			'button',
+			{
+				accessKey: resumeAccessKey,
+				disabled: !resumeTarget,
+				title: resumeTarget ? `${resumeTarget.type} ${resumeTarget.title ?? ''}` : undefined,
+				onClick: () => finishAndAddRecord(resumeTarget),
+			},
+			`一つ前を再開 (${resumeAccessKey})`,
+		),
 		createElement('h2', {}, '履歴'),
 		createElement('ol', {}, list.map((record) => {
 			return createElement(
