@@ -1501,6 +1501,7 @@ const App = () => {
 		),
 		createElement('h2', {}, '現在'),
 		// 記録が替わったら入力欄を作り直し、前の記録への入力が新しい記録の入力欄に残らないようにする
+		// 終了・再開は下の専用ボタンで行うので、行ごとの終了・再開ボタンは出さない (isEditable: false)
 		currentRecord ? createElement(RecordView, {key: currentRecord.start, titleRef: currentTitleRef, types, record: currentRecord, save, editTime, isEditable: false, hideDate: true}) : '未開始',
 		createElement(
 			'button',
