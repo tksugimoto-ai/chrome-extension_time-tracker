@@ -6,7 +6,7 @@
 //   - 終了・再開のアクセスキーは分類の編集モードで変えられ、なしにもできる（リロード後も残る）
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {launchExtension, resetStorage} from './extension.js';
+import {launchExtension, readRecords, resetStorage} from './extension.js';
 import {recordKeyOf as monthKey} from '../../chrome-extension/record-storage.js';
 
 test('終了・一つ前を再開をアクセスキーで操作できる', async () => {
@@ -33,7 +33,7 @@ test('終了・一つ前を再開をアクセスキーで操作できる', async
 	assert.equal(await resume.getAttribute('accesskey'), 'R');
 	const records = async () => {
 		await page.waitForTimeout(1500); // 保存を待つ
-		return (await page.evaluate(() => chrome.storage.local.get(null)))[monthKey(a.start)];
+		return readRecords(page);
 	};
 	const plain = ({type, title, memo, end}) => ({type, title, memo, running: !end});
 

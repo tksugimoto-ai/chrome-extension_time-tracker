@@ -837,7 +837,7 @@ const useDialog = () => {
  * @param {Object} param0
  * @param {string=} param0.value
  * @param {string[]} param0.usedAccessKeys
- * @param {function(string | undefined): void} param0.onChange 未入力なら undefined
+ * @param {function(string): void} param0.onChange 未入力なら ''
  */
 const AccessKeyInput = ({value, usedAccessKeys, onChange}) => {
 	return createElement(
@@ -857,7 +857,7 @@ const AccessKeyInput = ({value, usedAccessKeys, onChange}) => {
 			},
 			onChange: e => {
 				if (e.target.validity.patternMismatch) return;
-				onChange(e.target.value || undefined);
+				onChange(e.target.value);
 			},
 		},
 	);
@@ -1240,7 +1240,7 @@ const App = () => {
 						usedAccessKeys,
 						onChange: accessKey => {
 							// FIXME: mutableをやめる
-							type.accessKey = accessKey;
+							type.accessKey = accessKey || undefined;
 							saveType();
 						},
 					}),
@@ -1255,13 +1255,13 @@ const App = () => {
 				createElement(AccessKeyInput, {
 					value: stopAccessKey,
 					usedAccessKeys,
-					onChange: accessKey => setStopAccessKey(accessKey ?? ''),
+					onChange: setStopAccessKey,
 				}),
 				' 一つ前を再開: ',
 				createElement(AccessKeyInput, {
 					value: resumeAccessKey,
 					usedAccessKeys,
-					onChange: accessKey => setResumeAccessKey(accessKey ?? ''),
+					onChange: setResumeAccessKey,
 				}),
 			),
 			isTypeEditMode && createElement(
