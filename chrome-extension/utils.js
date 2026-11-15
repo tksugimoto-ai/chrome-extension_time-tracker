@@ -310,3 +310,34 @@ export const createDebouncedWriter = (write, delayMs) => {
 		flush,
 	};
 };
+
+/**
+ * 2つの要素を入れ替えた新しい配列を返す
+ * @template T
+ * @param {T[]} array
+ * @param {number} index1
+ * @param {number} index2
+ * @returns {T[]}
+ */
+export const swapped = (array, index1, index2) => {
+	return array.with(index1, array[index2]).with(index2, array[index1]);
+};
+
+// TODO: types に組み込む
+export const is勤務外 = type => {
+	return [
+		'昼休憩',
+		'中断',
+	].includes(type);
+};
+
+/**
+ *
+ * @param {{name: string}[]} types
+ * @param {string} current
+ * @returns
+ */
+export const typesToNamesWithCurrent = (types, current) => {
+	const names = types.map(({name}) => name);
+	return names.includes(current) ? names : [current, ...names];
+};
