@@ -989,9 +989,13 @@ const App = () => {
 	const [isDetailVisible, setDetailVisible] = useSetting('detail-visible', false);
 	const [hideNoTitleOrMemo, setHideNoTitleOrMemo] = useSetting('no-title_or_memo', true);
 	const [isAggregationVisible, setAggregationVisible] = useSetting('aggregation-visible', false);
-	// 「現在」の終了・一つ前を再開ボタンのアクセスキー。なしにしたときは '' を保存する（undefined だと既定値に戻るため）
-	const [stopAccessKey, setStopAccessKey] = useSetting('stop-access-key', 'Q');
-	const [resumeAccessKey, setResumeAccessKey] = useSetting('resume-access-key', 'R');
+	// 「現在」の終了・一つ前を再開ボタンのアクセスキー。未設定 (undefined) なら既定のキー、なしにしたときは '' を保存する
+	const [savedStopAccessKey, setStopAccessKey] = useSetting('stop-access-key', undefined);
+	const [savedResumeAccessKey, setResumeAccessKey] = useSetting('resume-access-key', undefined);
+	/** 既定のキーが分類で使われていれば、ぶつからないようキーなしにする */
+	const defaultAccessKey = key => types.some(type => type.accessKey?.toLowerCase() === key.toLowerCase()) ? '' : key;
+	const stopAccessKey = savedStopAccessKey ?? defaultAccessKey('Q');
+	const resumeAccessKey = savedResumeAccessKey ?? defaultAccessKey('R');
 
 	useEffect(() => {
 		if (!isInputToDoFromClipboardEnabled) return;

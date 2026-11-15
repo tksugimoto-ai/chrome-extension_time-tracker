@@ -4,6 +4,7 @@
 //   - 停止中は最後の記録を、計測中は一つ前の記録を再開する（分類・タイトル・メモを引き継ぐ）
 //   - 分類のアクセスキーに Q・R は使えない
 //   - 終了・再開のアクセスキーは分類の編集モードで変えられ、なしにもできる（リロード後も残る）
+//   - 既定のキーが分類で使われていれば、終了・再開はキーなしになる
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {launchExtension, readRecords, resetStorage} from './extension.js';
@@ -96,6 +97,29 @@ test('終了・一つ前を再開をアクセスキーで操作できる', async
 	assert.equal(await stopX.getAttribute('accesskey'), 'X');
 	const resumeNoKey = page.getByRole('button', {name: '一つ前を再開', exact: true});
 	assert.equal(await resumeNoKey.getAttribute('accesskey'), null);
+
+	assert.deepEqual(errors, []);
+});
+
+test('既定のキー (Q・R) が分類で使われていれば、終了・再開はキーなしになる', async () => {
+	const {ctx, base, errors} = await launchExtension();
+	const page = await ctx.newPage();
+	await page.goto(`${base}/main.html`);
+	await resetStorage(page, {
+		type: [{name: 'A作業', accessKey: 'q'}, {name: 'B作業'}],
+		todo: [],
+	});
+	await page.reload();
+	const stop = page.getByRole('button', {name: '終了', exact: true});
+	await stop.waitFor();
+	assert.equal(await stop.getAttribute('accesskey'), null);
+	assert.equal(await page.getByRole('button', {name: '一つ前を再開 (R)'}).getAttribute('accesskey'), 'R');
+	assert.equal(await page.getByRole('button', {name: '開始 (q)'}).getAttribute('accesskey'), 'q');
+
+	// 自分で設定したキーはそのまま使う
+	await page.evaluate(() => chrome.storage.local.set({'setting.stop-access-key': 'X'}));
+	await page.reload();
+	await page.getByRole('button', {name: '終了 (X)'}).waitFor();
 
 	assert.deepEqual(errors, []);
 });
