@@ -3,6 +3,7 @@
 //   - 終了で計測中の記録を終了する。停止中は終了ボタンが押せない
 //   - 停止中は最後の記録を、計測中は一つ前の記録を再開する（分類・タイトル・メモを引き継ぐ）
 //   - 分類のアクセスキーに Q・R は使えない
+//   - 終了・再開のアクセスキーは分類の編集モードで変えられ、なしにもできる（リロード後も残る）
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {launchExtension, resetStorage} from './extension.js';
@@ -36,8 +37,9 @@ test('終了・一つ前を再開をアクセスキーで操作できる', async
 	};
 	const plain = ({type, title, memo, end}) => ({type, title, memo, running: !end});
 
+	// 計測中の記録は経過時間が毎秒変わってボタンの位置がずれるので、stable を待たない dispatchEvent で押す
 	// 計測中 (B) に再開 → 一つ前 (A) を再開
-	await resume.click();
+	await resume.dispatchEvent('click');
 	let list = await records();
 	assert.deepEqual(list.map(plain), [
 		{type: 'A作業', title: 'A', memo: 'Aメモ', running: false},
@@ -46,14 +48,14 @@ test('終了・一つ前を再開をアクセスキーで操作できる', async
 	]);
 
 	// 終了。停止中は終了ボタンが押せない
-	await stop.click();
+	await stop.dispatchEvent('click');
 	list = await records();
 	assert.equal(list.length, 3);
 	assert.ok(list[2].end, '終了している');
 	assert.equal(await stop.isDisabled(), true);
 
 	// 停止中に再開 → 最後の記録 (A) を再開
-	await resume.click();
+	await resume.dispatchEvent('click');
 	list = await records();
 	assert.deepEqual(list.slice(3).map(plain), [{type: 'A作業', title: 'A', memo: 'Aメモ', running: true}]);
 	assert.equal(await stop.isDisabled(), false);
@@ -65,6 +67,27 @@ test('終了・一つ前を再開をアクセスキーで操作できる', async
 		await keyInput.fill(key);
 		assert.equal(await keyInput.evaluate(e => e.validity.patternMismatch), true, key);
 	}
+
+	// 終了のキーを X に変え、再開のキーをなしにする
+	const keyInputs = page.getByPlaceholder('アクセスキーなし');
+	const stopKeyInput = keyInputs.nth(2);
+	const resumeKeyInput = keyInputs.nth(3);
+	assert.equal(await stopKeyInput.inputValue(), 'Q');
+	assert.equal(await resumeKeyInput.inputValue(), 'R');
+	await stopKeyInput.fill('X');
+	await resumeKeyInput.fill('');
+	await page.waitForTimeout(300);
+	// X は終了で使っているので、分類には使えない
+	await keyInput.fill('x');
+	assert.equal(await keyInput.evaluate(e => e.validity.patternMismatch), true, 'x');
+	await keyInput.fill('');
+
+	await page.reload();
+	const stopX = page.getByRole('button', {name: '終了 (X)'});
+	await stopX.waitFor();
+	assert.equal(await stopX.getAttribute('accesskey'), 'X');
+	const resumeNoKey = page.getByRole('button', {name: '一つ前を再開', exact: true});
+	assert.equal(await resumeNoKey.getAttribute('accesskey'), null);
 
 	assert.deepEqual(errors, []);
 });

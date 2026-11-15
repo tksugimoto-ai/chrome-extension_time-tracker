@@ -833,6 +833,40 @@ const useDialog = () => {
 };
 
 /**
+ * アクセスキーの入力欄。他で使っているキーは入力できない
+ * @param {Object} param0
+ * @param {string=} param0.value
+ * @param {string[]} param0.usedAccessKeys
+ * @param {function(string | undefined): void} param0.onChange 未入力なら undefined
+ */
+const AccessKeyInput = ({value, usedAccessKeys, onChange}) => {
+	return createElement(
+		'input',
+		{
+			title: 'アクセスキー: ' + (value || 'なし'),
+			placeholder: 'アクセスキーなし',
+			pattern: value ? null : `[^${usedAccessKeys.map(escapeCharacterClassMetaChar).join('')}]`,
+			defaultValue: value,
+			maxLength: 1,
+			size: 2,
+			onBlur: e => {
+				if (e.target.validity.patternMismatch) {
+					// 別の入力欄を編集して不正じゃなくなった場合に`:invalid`ではなくなり正常に登録されたと誤解するため入力を削除する
+					e.target.value = '';
+				}
+			},
+			onChange: e => {
+				if (e.target.validity.patternMismatch) return;
+				onChange(e.target.value || undefined);
+			},
+		},
+	);
+};
+
+/** ボタンの表示名。アクセスキーがあれば付ける */
+const withAccessKey = (label, accessKey) => label + (accessKey ? ` (${accessKey})` : '');
+
+/**
  * ※ setTodoEditMode を外でも使用しているため、 state をこのコンポーネント内に閉じ込めるのは断念
  * @param {import("react").PropsWithChildren<{
 * 	checked: boolean,
@@ -904,10 +938,6 @@ const defaultTypes = [{
 	name: '中断',
 }];
 
-/** 記録中の終了・一つ前の再開ボタンのアクセスキー（分類のアクセスキーには使えない） */
-const stopAccessKey = 'Q';
-const resumeAccessKey = 'R';
-
 const App = () => {
 	const {
 		allList: todos,
@@ -958,6 +988,9 @@ const App = () => {
 	const [isDetailVisible, setDetailVisible] = useSetting('detail-visible', false);
 	const [hideNoTitleOrMemo, setHideNoTitleOrMemo] = useSetting('no-title_or_memo', true);
 	const [isAggregationVisible, setAggregationVisible] = useSetting('aggregation-visible', false);
+	// 「現在」の終了・一つ前を再開ボタンのアクセスキー。なしにしたときは '' を保存する（undefined だと既定値に戻るため）
+	const [stopAccessKey, setStopAccessKey] = useSetting('stop-access-key', 'Q');
+	const [resumeAccessKey, setResumeAccessKey] = useSetting('resume-access-key', 'R');
 
 	useEffect(() => {
 		if (!isInputToDoFromClipboardEnabled) return;
@@ -1007,7 +1040,7 @@ const App = () => {
 			if (L === U) return [L];
 			return [L, U];
 		});
-	}, [types]);
+	}, [stopAccessKey, resumeAccessKey, types]);
 
 	// 毎秒の再描画で全件を集計し直さないよう、終了済みの記録の集計はメモ化し、計測中の記録だけ毎回加算する
 	// 記録を書き換えたときは save() / add() で allList を作り直すこと（作り直さないとメモ化した集計が古いままになる）
@@ -1200,34 +1233,37 @@ const App = () => {
 								setTimeout(() => currentTitleRef.current?.focus());
 							},
 						},
-						'開始' + (!isTypeEditMode && type.accessKey ? ` (${type.accessKey})` : ''),
+						withAccessKey('開始', isTypeEditMode ? undefined : type.accessKey),
 					),
-					isTypeEditMode && createElement(
-						'input',
-						{
-							title: 'アクセスキー: ' + (type.accessKey ?? 'なし'),
-							placeholder: 'アクセスキーなし',
-							pattern: type.accessKey ? null : `[^${usedAccessKeys.map(escapeCharacterClassMetaChar).join('')}]`,
-							defaultValue: type.accessKey,
-							maxLength: 1,
-							size: 2,
-							onBlur: e => {
-								if (e.target.validity.patternMismatch) {
-									// 別の入力欄を編集して不正じゃなくなった場合に`:invalid`ではなくなり正常に登録されたと誤解するため入力を削除する
-									e.target.value = '';
-								}
-							},
-							onChange: e => {
-								if (e.target.validity.patternMismatch) return;
-								// FIXME: mutableをやめる
-								type.accessKey = e.target.value || undefined;
-								saveType();
-							},
+					isTypeEditMode && createElement(AccessKeyInput, {
+						value: type.accessKey,
+						usedAccessKeys,
+						onChange: accessKey => {
+							// FIXME: mutableをやめる
+							type.accessKey = accessKey;
+							saveType();
 						},
-					),
+					}),
 					type.name,
 				);
 			})),
+			// 「現在」の終了・再開のアクセスキーも、分類のアクセスキーと重ならないようここで設定する
+			isTypeEditMode && createElement(
+				'div',
+				{},
+				'「現在」の終了: ',
+				createElement(AccessKeyInput, {
+					value: stopAccessKey,
+					usedAccessKeys,
+					onChange: accessKey => setStopAccessKey(accessKey ?? ''),
+				}),
+				' 一つ前を再開: ',
+				createElement(AccessKeyInput, {
+					value: resumeAccessKey,
+					usedAccessKeys,
+					onChange: accessKey => setResumeAccessKey(accessKey ?? ''),
+				}),
+			),
 			isTypeEditMode && createElement(
 				'form',
 				{
@@ -1506,7 +1542,7 @@ const App = () => {
 		createElement(
 			'button',
 			{
-				accessKey: stopAccessKey,
+				accessKey: stopAccessKey || undefined,
 				disabled: !isRecording,
 				onClick: () => {
 					// FIXME: mutableをやめる
@@ -1514,17 +1550,17 @@ const App = () => {
 					save();
 				},
 			},
-			`終了 (${stopAccessKey})`,
+			withAccessKey('終了', stopAccessKey),
 		),
 		createElement(
 			'button',
 			{
-				accessKey: resumeAccessKey,
+				accessKey: resumeAccessKey || undefined,
 				disabled: !resumeTarget,
 				title: resumeTarget ? `${resumeTarget.type} ${resumeTarget.title ?? ''}` : undefined,
 				onClick: () => finishAndAddRecord(resumeTarget),
 			},
-			`一つ前を再開 (${resumeAccessKey})`,
+			withAccessKey('一つ前を再開', resumeAccessKey),
 		),
 		createElement('h2', {}, '履歴'),
 		createElement('ol', {}, list.map((record) => {
