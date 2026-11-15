@@ -90,7 +90,10 @@ export const openComponentPage = async (items = {}) => {
 	// 日付の境目で結果が変わらないように、時刻を決めておく
 	const today = new Date();
 	const now = new Date(today.getFullYear(), today.getMonth(), 15, 12).getTime();
-	await page.clock.install({time: now - 1000});
+	// pauseAt は先の時刻にしか止められない。ページを開く前にすぐ止め、遅いマシンでも過ぎないように 1 分前から始める
+	// (まだページを開いていないので、1 分進めても動くタイマーはない)
+	await page.clock.install({time: now - 60e3});
+	await page.clock.pauseAt(now);
 	await page.goto(`${base}/main.html`);
 	await resetStorage(page, items);
 	await page.evaluate(async base => {
@@ -126,7 +129,6 @@ export const openComponentPage = async (items = {}) => {
 			channel.port2.postMessage(null);
 		});
 	}, base);
-	await page.clock.pauseAt(now);
 	afterEach(async () => {
 		await page.evaluate(() => {
 			window.unmountAll();
