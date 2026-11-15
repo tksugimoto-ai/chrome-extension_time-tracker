@@ -845,7 +845,8 @@ const AccessKeyInput = ({value, usedAccessKeys, onChange}) => {
 		{
 			title: 'アクセスキー: ' + (value || 'なし'),
 			placeholder: 'アクセスキーなし',
-			pattern: value ? null : `[^${usedAccessKeys.map(escapeCharacterClassMetaChar).join('')}]`,
+			// 自分のキーは入力し直せるよう除く (大文字小文字は区別しない)
+			pattern: `[^${usedAccessKeys.filter(c => c.toLowerCase() !== value?.toLowerCase()).map(escapeCharacterClassMetaChar).join('')}]`,
 			defaultValue: value,
 			maxLength: 1,
 			size: 2,
