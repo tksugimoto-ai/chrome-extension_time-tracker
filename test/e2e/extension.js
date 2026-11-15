@@ -38,6 +38,12 @@ export const launchExtension = async (options = {}) => {
 	let [sw] = ctx.serviceWorkers();
 	if (!sw) sw = await ctx.waitForEvent('serviceworker');
 	const base = `chrome-extension://${new URL(sw.url()).host}`;
+	// インストール時に拡張が main.html のタブを開く (background.js の onInstalled)。
+	// 遅れて開くので、テスト中に開くと clock.install などが失敗し、storage の読み書きも混ざる。開くのを待って閉じておく
+	const installedUrl = `${base}/main.html`;
+	const installedPage = ctx.pages().find(p => p.url() === installedUrl)
+		?? await ctx.waitForEvent('page', {predicate: p => p.url() === installedUrl});
+	await installedPage.close();
 	return {ctx, base, errors};
 };
 
