@@ -55,10 +55,36 @@ export const launchExtension = async (options = {}) => {
 export const resetStorage = (page, items) => page.evaluate(items => chrome.storage.local.clear().then(() => chrome.storage.local.set(items)), items);
 
 /**
- * storage の内容から記録を取り出す（月ごとのキーをまとめる）
+ * 保存した記録 1 件を、項目名のある形にする
+ * 配列 (ToDo を ID で参照する記録は [開始, 経過, ToDo の ID, メモ?]、ほかは [開始, 経過, 分類, タイトル?, メモ?]) なら、ToDo の分類・タイトル・メモで埋める
+ * @param {any} record
+ * @param {Map<number, any>} todoById
+ */
+export const recordObjectOf = (record, todoById) => {
+	if (!Array.isArray(record)) return record;
+	const [start, elapsed, ref, a, b] = record;
+	const todo = typeof ref === 'number' ? todoById.get(ref) : undefined;
+	const [type, title, memo] = typeof ref === 'number' ? [todo?.type, todo?.title, a ?? todo?.memo] : [ref, a, b];
+	return {start, ...(elapsed == null ? {} : {end: start + elapsed}), type, ...(title == null ? {} : {title}), ...(memo ? {memo} : {})};
+};
+
+/**
+ * storage の内容の記録のキー (record・record.YYYY-MM) を、項目名のある形にする
  * @param {Object<string, any>} items
  */
-export const recordsOf = items => loadRecords(items).records;
+export const withRecordObjects = items => {
+	const todoById = new Map((items.todo ?? []).map(todo => [todo.id, todo]));
+	return Object.fromEntries(Object.entries(items).map(([key, value]) => [
+		key,
+		(key === 'record' || key.startsWith('record.')) && Array.isArray(value) ? value.map(r => recordObjectOf(r, todoById)) : value,
+	]));
+};
+
+/**
+ * storage の内容から記録を取り出す（月ごとのキーをまとめ、項目名のある形にする）
+ * @param {Object<string, any>} items
+ */
+export const recordsOf = items => loadRecords(withRecordObjects(items)).records;
 
 /**
  * @param {import('playwright').Page} page 拡張のページ
