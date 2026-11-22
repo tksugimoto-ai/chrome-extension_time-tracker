@@ -9,7 +9,8 @@ import {
 	Formats,
 	todoKeyOf,
 	addRecordsToTodoWorkTimes,
-	addToSubtotalByDate,
+	sumWorkTimeSecondsBy,
+	splitWorkTimeByDate,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
@@ -20,6 +21,7 @@ import {
 import {loadRecords, markUnsaved, planRecordSave} from './record-storage.js';
 
 /** @typedef {import('./utils.js').Todo} Todo */
+/** @typedef {import('./utils.js').WorkTimeTree} WorkTimeTree */
 
 const {
 	createElement,
@@ -541,6 +543,8 @@ export const EditTimeForm = ({
 };
 
 const groupNothingName = '(グループなし)';
+/** 期限がこれより近い ToDo を「期限が近い」とする */
+const closeToDeadlineMs = 3 * 24 * 60 * 60 * 1000;
 
 /**
  * @param {{
@@ -640,7 +644,7 @@ export const TodoRow = ({
 				},
 			},
 		) : todo.deadline && createElement('span', {
-			className: todo.deadline < Date.now() ? 'expired-deadline' : todo.deadline < (Date.now() + 3 * 24 * 60 * 60 * 1000) ? 'close-to-deadline' : null,
+			className: todo.deadline < Date.now() ? 'expired-deadline' : todo.deadline < (Date.now() + closeToDeadlineMs) ? 'close-to-deadline' : null,
 		}, `(-${Formats.localeDeadlineDateString(todo.deadline)})`)),
 		' [',
 		createElement('span', {
@@ -875,6 +879,9 @@ export const EditModeTab = ({
 	);
 };
 
+/** 古い ToDo を畳むとき、一覧ごとに表示する件数 */
+const recentTodoCount = 5;
+
 const defaultTodoGroups = [
 	'対応待ち',
 	'template',
@@ -890,6 +897,21 @@ const defaultTypes = [{
 	name: '中断',
 }];
 
+/**
+ * @param {{tree: WorkTimeTree[], ordered?: boolean}} param0
+ */
+const WorkTimeTreeList = ({tree, ordered}) => createElement(ordered ? 'ol' : 'ul', {}, tree.map(({key, seconds, children}) => {
+	return createElement(
+		'li',
+		{key},
+		// キーが空になるのはタイトルだけ
+		`${key || '(タイトルなし)'}: ${Formats.seconds(seconds)}`,
+		children && createElement(WorkTimeTreeList, {tree: children}),
+	);
+}));
+// 閉じたダイアログの中身も毎秒の再描画で作り直さないよう、tree が変わったときだけ描画する
+const MemoWorkTimeTreeList = memo(WorkTimeTreeList);
+
 const App = () => {
 	const {
 		allList: todos,
@@ -904,6 +926,8 @@ const App = () => {
 	const [newTodoTitle, setNewTodoTitle] = useState('');
 	const [newTodoMemo, setNewTodoMemo] = useState('');
 	const [newTodoGroup, setNewTodoGroup] = useState('');
+	// 古い ToDo を表示しているグループ（グループなしは undefined）。開き直すと畳んだ状態に戻る
+	const [expandedTodoLists, setExpandedTodoLists] = useState(() => new Set());
 
 	const {
 		allList: types,
@@ -1024,7 +1048,7 @@ const App = () => {
 	}, [allList]);
 
 	/** ToDo の時間・日ごとの合計ボタンで開く、日付別の小計 (開いた時点の値) */
-	/** @type{ReturnType<typeof useState<{title: string, total: number, subtotalByDate: Map<string, number>}>>} */
+	/** @type{ReturnType<typeof useState<{title: string, total: number, byDate: WorkTimeTree[]}>>} */
 	const [subtotal, setSubtotal] = useState();
 	const {
 		Dialog: SubtotalDialog,
@@ -1267,9 +1291,25 @@ const App = () => {
 			),
 			(() => {
 				const currentKey = currentRecord && todoKeyOf(currentRecord);
-				const createList = (list) => {
+				/**
+				 * @param {Todo[]} list
+				 * @param {string} [listKey] グループ名。グループなしは undefined
+				 */
+				const createList = (list, listKey) => {
 					if (list.length === 0) return createElement('ul', {}, createElement('li', {}, 'ToDoなし'));
-					return createElement('ul', {}, list.map((todo) => {
+					// グループごとの一覧では、計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo・
+					// 期限切れか期限が近い ToDo（期限を管理するとき）だけを表示し、残りは畳む。並び順は変えない
+					// グループを使わないときは畳まずに全件表示する
+					// 同じ分類・タイトルの ToDo は先頭の ToDo に集計されるので、先頭の日時を使う
+					const lastWorkedAts = new Map(list.map(todo => [todo, todoWorkTimes[todoIndexByKey.get(todoKeyOf(todo))].lastWorkedAt]));
+					const recentTodos = new Set(list.filter(todo => lastWorkedAts.get(todo) !== undefined)
+						.toSorted((a, b) => lastWorkedAts.get(b) - lastWorkedAts.get(a)).slice(0, recentTodoCount));
+					const collapsedList = !usingTodoGroup ? list : list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoKeyOf(todo) === currentKey
+						|| (usingTodoDeadline && !!todo.deadline && todo.deadline < Date.now() + closeToDeadlineMs));
+					const oldTodoCount = list.length - collapsedList.length;
+					const isExpanded = expandedTodoLists.has(listKey);
+					const visibleList = isExpanded ? list : collapsedList;
+					return createElement('ul', {}, visibleList.map((todo) => {
 						const i = todos.indexOf(todo);
 						const todoWorkTimeTatal = todoWorkTimes[i].total;
 						const key = todoKeyOf(todo);
@@ -1298,13 +1338,23 @@ const App = () => {
 									isDuplicate: todoIndexByKey.get(key) !== i,
 									showSubtotal: () => {
 										const {todo: {type, title}, total, subtotalByDate} = todoWorkTimes[i];
-										setSubtotal({title: `${type}(${title})`, total, subtotalByDate});
+										const byDate = [...subtotalByDate].map(([key, seconds]) => ({key, seconds}));
+										setSubtotal({title: `${type}(${title})`, total, byDate});
 										showSubtotalModalDialog();
 									},
 								},
 							),
 						);
-					}));
+					}), oldTodoCount > 0 && createElement('li', {},
+						createElement('button', {
+							onClick: () => {
+								const next = new Set(expandedTodoLists);
+								if (isExpanded) next.delete(listKey);
+								else next.add(listKey);
+								setExpandedTodoLists(next);
+							},
+						}, isExpanded ? '古いToDoを隠す' : `古いToDoを表示（${oldTodoCount}件）`),
+					));
 				};
 				if (usingTodoGroup) {
 					const groupNothingValue = undefined;
@@ -1361,7 +1411,7 @@ const App = () => {
 										}, '下へ移動'),
 									),
 								),
-								createList(groupdMap.get(group) ?? []),
+								createList(groupdMap.get(group) ?? [], group),
 							);
 						}),
 					);
@@ -1543,13 +1593,20 @@ const App = () => {
 			createElement('button', {
 				onClick: () => {
 					// 毎秒の再描画で集計し直さないよう、押したときだけ集計する
-					/** @type{Map<string, number>} */
-					const subtotalByDate = new Map();
+					// 計測中の記録の時間は描画時点から進んでいるので、各記録の時間はここで1回だけ求め、合計もそこから出す
 					// 日付を跨いだ記録は、集計する期間に含まれる分だけを日ごとに分けて数える
-					targetWorkRecords.forEach(record => addToSubtotalByDate(subtotalByDate, record, targetStartMs, targetEndMs));
-					// 計測中の記録の時間は描画時点から進んでいるので、合計も押したときの小計から出す
-					const total = [...subtotalByDate.values()].reduce((acc, seconds) => acc + seconds, 0);
-					setSubtotal({title: '日ごとの勤務時間', total, subtotalByDate});
+					const items = targetWorkRecords.flatMap(record => splitWorkTimeByDate(record, targetStartMs, targetEndMs).map(([date, seconds]) => ({record, date, seconds})));
+					// 内訳は集計結果に合わせ、分類ごと。「同一タイトルで集約」のときはその下にタイトルごと
+					/** @type{(function(TimeRecord): string)[]} */
+					const keyOfs = [({type}) => type];
+					if (isAggregationVisible) keyOfs.push(({title}) => title || '');
+					// 日付は日付順のまま、各日の内訳だけ長い順にする
+					const byDate = [...Map.groupBy(items, ({date}) => date)].map(([date, sameDateItems]) => {
+						const children = sumWorkTimeSecondsBy(sameDateItems, keyOfs);
+						return {key: date, seconds: children.reduce((acc, {seconds}) => acc + seconds, 0), children};
+					});
+					const total = byDate.reduce((acc, {seconds}) => acc + seconds, 0);
+					setSubtotal({title: '日ごとの勤務時間', total, byDate});
 					showSubtotalModalDialog();
 				},
 			}, '日ごとの合計'),
@@ -1670,13 +1727,7 @@ const App = () => {
 			{},
 			createElement('h3', {}, subtotal?.title),
 			subtotal && createElement('p', {}, `合計: ${Formats.seconds(subtotal.total)}`),
-			createElement(
-				'ol',
-				{},
-				Array.from(subtotal?.subtotalByDate?.entries() ?? []).map(([date, seconds]) => {
-					return createElement('li', {key: date}, `${date}: ${Formats.seconds(seconds)}`);
-				}),
-			),
+			subtotal && createElement(MemoWorkTimeTreeList, {tree: subtotal.byDate, ordered: true}),
 		),
 	);
 };

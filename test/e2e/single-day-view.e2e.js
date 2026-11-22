@@ -21,7 +21,7 @@ test('集計結果で 1 日だけを表示できる', async () => {
 	});
 	await page.reload();
 	await page.waitForTimeout(800);
-	const total = () => page.evaluate(() => document.body.innerText.match(/勤務時間Total: (.*)/)[1]);
+	const total = () => page.evaluate(() => document.body.innerText.match(/勤務時間Total: (\S+)/)[1]);
 	const sticky = page.locator('h2:text("集計結果") + .sticky');
 	const [startInput, endInput] = [sticky.locator('input[type=date]').nth(0), sticky.locator('input[type=date]').nth(1)];
 	const check = async (label, dayOffset, hours) => {

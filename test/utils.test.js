@@ -11,6 +11,8 @@ import {
 	todoKeyOf,
 	addRecordsToTodoWorkTimes,
 	addToSubtotalByDate,
+	splitWorkTimeByDate,
+	sumWorkTimeSecondsBy,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
@@ -201,17 +203,40 @@ describe('addToSubtotalByDate', () => {
 		]);
 	});
 
-	it('期間を渡すと、期間に含まれる日だけを加算する', () => {
-		const subtotalByDate = new Map();
+	it('splitWorkTimeByDate に期間を渡すと、期間に含まれる日だけを返す', () => {
 		const record = TimeRecord.load({type: '作業', start: localTime(2026, 9, 22, 23, 0), end: localTime(2026, 9, 24, 0, 30)});
-		assert.equal(addToSubtotalByDate(subtotalByDate, record, localTime(2026, 9, 23), localTime(2026, 9, 24)), 24 * 60 * 60);
-		assert.deepEqual([...subtotalByDate], [[Formats.localeDateString(localTime(2026, 9, 23)), 24 * 60 * 60]]);
+		assert.deepEqual(splitWorkTimeByDate(record, localTime(2026, 9, 23), localTime(2026, 9, 24)), [[Formats.localeDateString(localTime(2026, 9, 23)), 24 * 60 * 60]]);
 	});
 
 	it('長さ 0 の記録も開始日に 0 秒で入れる', () => {
 		const subtotalByDate = new Map();
 		addToSubtotalByDate(subtotalByDate, TimeRecord.load({type: '作業', start: localTime(2026, 9, 23, 9, 0), end: localTime(2026, 9, 23, 9, 0)}));
 		assert.deepEqual([...subtotalByDate], [[Formats.localeDateString(localTime(2026, 9, 23)), 0]]);
+	});
+});
+
+describe('sumWorkTimeSecondsBy', () => {
+	const item = (type, title, seconds) => ({record: TimeRecord.load({type, title, start: 0, end: 0}), seconds});
+	const items = [
+		item('A', 'x', 60),
+		item('B', '', 300),
+		item('A', 'y', 120),
+		item('A', 'x', 30),
+	];
+	it('キーごとに渡した秒数を合計し、長い順に並べる', () => {
+		assert.deepEqual(sumWorkTimeSecondsBy(items, [({type}) => type]), [
+			{key: 'B', seconds: 300, children: undefined},
+			{key: 'A', seconds: 210, children: undefined},
+		]);
+	});
+	it('キーを複数渡すと入れ子で合計する', () => {
+		assert.deepEqual(sumWorkTimeSecondsBy(items, [({type}) => type, ({title}) => title || '']), [
+			{key: 'B', seconds: 300, children: [{key: '', seconds: 300, children: undefined}]},
+			{key: 'A', seconds: 210, children: [
+				{key: 'y', seconds: 120, children: undefined},
+				{key: 'x', seconds: 90, children: undefined},
+			]},
+		]);
 	});
 });
 
@@ -240,6 +265,19 @@ describe('addRecordsToTodoWorkTimes', () => {
 			[Formats.localeDateString(localTime(2026, 9, 22)), 60 * 60],
 			[Formats.localeDateString(localTime(2026, 9, 23)), 60 * 60],
 		]);
+	});
+
+	it('最後に計測した日時を持つ', () => {
+		const start = localTime(2026, 9, 23, 9, 0);
+		const [result] = addRecordsToTodoWorkTimes(createTodoWorkTimes(), todoIndexByKey, [
+			TimeRecord.load({...todo, start: start + 60000, end: start + 120000}),
+			TimeRecord.load({...todo, start, end: start + 60000}),
+		]);
+		assert.equal(result.lastWorkedAt, start + 120000);
+		const [notMatched] = addRecordsToTodoWorkTimes(createTodoWorkTimes(), todoIndexByKey, [
+			TimeRecord.load({type: 'B', start, end: start + 60000}),
+		]);
+		assert.equal(notMatched.lastWorkedAt, undefined);
 	});
 
 	it('引数の配列と要素を変更しない', () => {

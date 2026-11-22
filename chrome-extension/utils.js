@@ -220,6 +220,7 @@ export const Formats = {
  * 	todo: Todo;
  * 	total: number;
  * 	subtotalByDate: Map<string, number>;
+ * 	lastWorkedAt?: number; // 最後に計測した日時（計測中なら開始日時）。記録がなければ undefined
  * }} TodoWorkTime */
 
 /**
@@ -247,32 +248,65 @@ export const addRecordsToTodoWorkTimes = (todoWorkTimes, todoIndexByKey, records
 		const matched = result[i];
 		// 合計は日付ごとの小計を足して、秒未満の切り捨てで小計の和とずれないようにする
 		matched.total += addToSubtotalByDate(matched.subtotalByDate, record);
+		matched.lastWorkedAt = Math.max(matched.lastWorkedAt ?? 0, record.end ?? record.start);
 	}
 	return result;
 };
 
 /**
- * 記録の作業時間を、日付ごとの小計に加算する (引数の Map を変更する)
- * 日付を跨いだ記録は日の区切り (dayRangeOf) で分ける。期間を渡すと、期間に含まれる分だけを加算する
- * @param {Map<string, number>} subtotalByDate キーは Formats.localeDateString
+ * 記録の作業時間を日付ごとに分ける。日付を跨いだ記録は日の区切り (dayRangeOf) で分ける
+ * 期間を渡すと、期間に含まれる日だけを返す。長さ 0 の記録も、開始日に 0 秒で入れる
  * @param {TimeRecord} record
  * @param {number=} rangeStartMs
  * @param {number=} rangeEndMs
- * @returns {number} 加算した秒数
+ * @returns {[date: string, seconds: number][]} date は Formats.localeDateString
  */
-export const addToSubtotalByDate = (subtotalByDate, record, rangeStartMs = -Infinity, rangeEndMs = Infinity) => {
+export const splitWorkTimeByDate = (record, rangeStartMs = -Infinity, rangeEndMs = Infinity) => {
 	const end = Math.min(record.end ?? Date.now(), rangeEndMs);
-	let added = 0;
+	/** @type {[date: string, seconds: number][]} */
+	const result = [];
 	let day = dayRangeOf(new Date(Math.max(record.start, rangeStartMs)));
-	// 長さ 0 の記録も、開始日に 0 秒で入れる
 	do {
-		const date = Formats.localeDateString(day.start);
-		const seconds = record.secondsWithin(day.start, day.end);
-		subtotalByDate.set(date, (subtotalByDate.get(date) ?? 0) + seconds);
-		added += seconds;
+		result.push([Formats.localeDateString(day.start), record.secondsWithin(day.start, day.end)]);
 		day = dayRangeOf(new Date(day.end));
 	} while (day.start < end);
+	return result;
+};
+
+/**
+ * 記録の作業時間を、日付ごとの小計に加算する (引数の Map を変更する)。日付の分け方は splitWorkTimeByDate
+ * @param {Map<string, number>} subtotalByDate キーは Formats.localeDateString
+ * @param {TimeRecord} record
+ * @returns {number} 加算した秒数
+ */
+export const addToSubtotalByDate = (subtotalByDate, record) => {
+	let added = 0;
+	for (const [date, seconds] of splitWorkTimeByDate(record)) {
+		subtotalByDate.set(date, (subtotalByDate.get(date) ?? 0) + seconds);
+		added += seconds;
+	}
 	return added;
+};
+
+/** @typedef {{
+ * 	key: string;
+ * 	seconds: number;
+ * 	children?: WorkTimeTree[];
+ * }} WorkTimeTree */
+
+/**
+ * 作業時間を keyOfs の順に入れ子で合計する。各階層は作業時間の長い順
+ * 計測中の記録は時間が変わり続けるので、各記録の作業時間は呼び出し側で1回だけ求めて seconds に渡す
+ * @param {{record: TimeRecord, seconds: number}[]} items
+ * @param {(function(TimeRecord): string)[]} keyOfs
+ * @returns {WorkTimeTree[]}
+ */
+export const sumWorkTimeSecondsBy = (items, [keyOf, ...childKeyOfs]) => {
+	return [...Map.groupBy(items, ({record}) => keyOf(record))].map(([key, group]) => ({
+		key,
+		seconds: group.reduce((acc, {seconds}) => acc + seconds, 0),
+		children: childKeyOfs.length ? sumWorkTimeSecondsBy(group, childKeyOfs) : undefined,
+	})).sort((a, b) => b.seconds - a.seconds);
 };
 
 /**
