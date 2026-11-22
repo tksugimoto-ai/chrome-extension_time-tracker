@@ -9,9 +9,14 @@ import {
 	Formats,
 	todoKeyOf,
 	addRecordsToTodoWorkTimes,
+	addToSubtotalByDate,
+	sumWorkTimeSecondsBy,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
+	swapped,
+	is勤務外,
+	typesToNamesWithCurrent,
 } from '../chrome-extension/utils.js';
 
 // 実行環境のタイムゾーンに依存しないよう、日時はローカル時刻で組み立てる
@@ -138,6 +143,49 @@ describe('todoKeyOf', () => {
 	});
 });
 
+describe('addToSubtotalByDate', () => {
+	it('開始日の日付ごとに作業時間を足す', () => {
+		const day1 = new Date(2024, 0, 1, 9).getTime();
+		const day2 = new Date(2024, 0, 2, 9).getTime();
+		/** @type{Map<string, number>} */
+		const subtotalByDate = new Map();
+		[
+			TimeRecord.load({type: 'A', start: day1, end: day1 + 60000}),
+			TimeRecord.load({type: 'B', start: day2, end: day2 + 120000}),
+			TimeRecord.load({type: 'A', start: day1 + 60000, end: day1 + 240000}),
+		].forEach(record => addToSubtotalByDate(subtotalByDate, record));
+		assert.deepEqual([...subtotalByDate], [
+			[Formats.localeDateString(day1), 240],
+			[Formats.localeDateString(day2), 120],
+		]);
+	});
+});
+
+describe('sumWorkTimeSecondsBy', () => {
+	const item = (type, title, seconds) => ({record: TimeRecord.load({type, title, start: 0, end: 0}), seconds});
+	const items = [
+		item('A', 'x', 60),
+		item('B', '', 300),
+		item('A', 'y', 120),
+		item('A', 'x', 30),
+	];
+	it('キーごとに渡した秒数を合計し、長い順に並べる', () => {
+		assert.deepEqual(sumWorkTimeSecondsBy(items, [({type}) => type]), [
+			{key: 'B', seconds: 300, children: undefined},
+			{key: 'A', seconds: 210, children: undefined},
+		]);
+	});
+	it('キーを複数渡すと入れ子で合計する', () => {
+		assert.deepEqual(sumWorkTimeSecondsBy(items, [({type}) => type, ({title}) => title || '']), [
+			{key: 'B', seconds: 300, children: [{key: '', seconds: 300, children: undefined}]},
+			{key: 'A', seconds: 210, children: [
+				{key: 'y', seconds: 120, children: undefined},
+				{key: 'x', seconds: 90, children: undefined},
+			]},
+		]);
+	});
+});
+
 describe('addRecordsToTodoWorkTimes', () => {
 	const todo = {type: 'A', title: 't'};
 	const createTodoWorkTimes = () => [{todo, total: 0, subtotalByDate: new Map()}];
@@ -238,5 +286,30 @@ describe('createDebouncedWriter', () => {
 		mock.timers.tick(1000);
 		writer.flush();
 		assert.deepEqual(written, ['a']);
+	});
+});
+
+describe('swapped', () => {
+	it('2 つの要素を入れ替えた新しい配列を返し、元の配列は変えない', () => {
+		const array = ['a', 'b', 'c'];
+		assert.deepEqual(swapped(array, 0, 2), ['c', 'b', 'a']);
+		assert.deepEqual(swapped(array, 1, 0), ['b', 'a', 'c']);
+		assert.deepEqual(array, ['a', 'b', 'c']);
+	});
+});
+
+describe('is勤務外', () => {
+	it('昼休憩と中断だけが勤務外', () => {
+		assert.deepEqual(['昼休憩', '中断', '開発', 'ミーティング', ''].map(is勤務外), [true, true, false, false, false]);
+	});
+});
+
+describe('typesToNamesWithCurrent', () => {
+	const types = [{name: '開発'}, {name: 'MTG'}];
+	it('分類の名前の一覧を返す', () => {
+		assert.deepEqual(typesToNamesWithCurrent(types, 'MTG'), ['開発', 'MTG']);
+	});
+	it('現在の分類が一覧になければ先頭に足す', () => {
+		assert.deepEqual(typesToNamesWithCurrent(types, '削除した分類'), ['削除した分類', '開発', 'MTG']);
 	});
 });

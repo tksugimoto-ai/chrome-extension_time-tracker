@@ -233,11 +233,40 @@ export const addRecordsToTodoWorkTimes = (todoWorkTimes, todoIndexByKey, records
 		const matched = result[i];
 		matched.total += record.workTimeSeconds;
 		matched.lastWorkedAt = Math.max(matched.lastWorkedAt ?? 0, record.end ?? record.start);
-
-		const date = Formats.localeDateString(record.start);
-		matched.subtotalByDate.set(date, (matched.subtotalByDate.get(date) ?? 0) + record.workTimeSeconds);
+		addToSubtotalByDate(matched.subtotalByDate, record);
 	}
 	return result;
+};
+
+/**
+ * 記録の作業時間を、開始日の日付ごとの小計に加算する (引数の Map を変更する)
+ * @param {Map<string, number>} subtotalByDate
+ * @param {TimeRecord} record
+ */
+export const addToSubtotalByDate = (subtotalByDate, record) => {
+	const date = Formats.localeDateString(record.start);
+	subtotalByDate.set(date, (subtotalByDate.get(date) ?? 0) + record.workTimeSeconds);
+};
+
+/** @typedef {{
+ * 	key: string;
+ * 	seconds: number;
+ * 	children?: WorkTimeTree[];
+ * }} WorkTimeTree */
+
+/**
+ * 作業時間を keyOfs の順に入れ子で合計する。各階層は作業時間の長い順
+ * 計測中の記録は時間が変わり続けるので、各記録の作業時間は呼び出し側で1回だけ求めて seconds に渡す
+ * @param {{record: TimeRecord, seconds: number}[]} items
+ * @param {(function(TimeRecord): string)[]} keyOfs
+ * @returns {WorkTimeTree[]}
+ */
+export const sumWorkTimeSecondsBy = (items, [keyOf, ...childKeyOfs]) => {
+	return [...Map.groupBy(items, ({record}) => keyOf(record))].map(([key, group]) => ({
+		key,
+		seconds: group.reduce((acc, {seconds}) => acc + seconds, 0),
+		children: childKeyOfs.length ? sumWorkTimeSecondsBy(group, childKeyOfs) : undefined,
+	})).sort((a, b) => b.seconds - a.seconds);
 };
 
 /**
@@ -311,4 +340,35 @@ export const createDebouncedWriter = (write, delayMs) => {
 		},
 		flush,
 	};
+};
+
+/**
+ * 2つの要素を入れ替えた新しい配列を返す
+ * @template T
+ * @param {T[]} array
+ * @param {number} index1
+ * @param {number} index2
+ * @returns {T[]}
+ */
+export const swapped = (array, index1, index2) => {
+	return array.with(index1, array[index2]).with(index2, array[index1]);
+};
+
+// TODO: types に組み込む
+export const is勤務外 = type => {
+	return [
+		'昼休憩',
+		'中断',
+	].includes(type);
+};
+
+/**
+ *
+ * @param {{name: string}[]} types
+ * @param {string} current
+ * @returns
+ */
+export const typesToNamesWithCurrent = (types, current) => {
+	const names = types.map(({name}) => name);
+	return names.includes(current) ? names : [current, ...names];
 };
