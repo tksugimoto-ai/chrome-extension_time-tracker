@@ -24,6 +24,17 @@ module.exports = {
 			node: true,
 		},
 	}, {
+		// page.evaluate() に渡す関数は拡張のページ内で動く
+		files: ['test/e2e/**/*.js'],
+		parserOptions: {
+			ecmaVersion: 2022, // top-level await
+		},
+		globals: {
+			chrome: 'readonly',
+			React: 'readonly',
+			ReactDOM: 'readonly',
+		},
+	}, {
 		// <script type="module"> 以外で読み込まれるもの
 		files: ['chrome-extension/background.js'],
 		parserOptions: {

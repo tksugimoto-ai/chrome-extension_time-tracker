@@ -1,4 +1,3 @@
-// @ts-check
 /* global chrome */
 /* global React, ReactDOM */
 import {
@@ -13,13 +12,18 @@ import {
 	createTodoIndex,
 	linkRecordsToTodos,
 	addRecordsToTodoWorkTimes,
+	sumWorkTimeSecondsBy,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
+	swapped,
+	is勤務外,
+	typesToNamesWithCurrent,
 } from './utils.js';
 import {loadRecords, markUnsaved, planRecordSave} from './record-storage.js';
 
 /** @typedef {import('./utils.js').Todo} Todo */
+/** @typedef {import('./utils.js').WorkTimeTree} WorkTimeTree */
 
 const {
 	createElement,
@@ -29,18 +33,9 @@ const {
 	useEffect,
 	useMemo,
 	useReducer,
+	memo,
 } = React;
 
-
-/**
- *
- * @param {any[]} array
- * @param {number} index1
- * @param {number} index2
- */
-const swap = (array, index1, index2) => {
-	[array[index1], array[index2]] = [array[index2], array[index1]];
-};
 
 const domParser = new DOMParser();
 
@@ -52,7 +47,7 @@ const domParser = new DOMParser();
  *   url?: string,
  * }> | null}
  */
-const readClipboardData = clipboardData => {
+export const readClipboardData = clipboardData => {
 	const items = Array.from(clipboardData.items);
 	const plain = items.find(item => item.type === 'text/plain');
 	if (!plain) return null;
@@ -75,14 +70,6 @@ const readClipboardData = clipboardData => {
 	});
 };
 
-// TODO: types に組み込む
-const is勤務外 = type => {
-	return [
-		'昼休憩',
-		'中断',
-	].includes(type);
-};
-
 // バックアップから復元されたら、古いデータで上書きしないよう読み込み直す (import.js から送られる)
 // 復元したデータを、まだ反映していない入力 (LazyInput) で上書きしないよう捨てる
 let isDiscardingPendingInputs = false;
@@ -92,7 +79,7 @@ chrome.runtime.onMessage.addListener(message => {
 	location.reload();
 });
 
-const loadFromStorage = (key, callback) => {
+export const loadFromStorage = (key, callback) => {
 	chrome.storage.local.get(key, items => {
 		callback(items[key]);
 	});
@@ -103,7 +90,7 @@ const loadFromStorage = (key, callback) => {
  * @param {string[]=} removeKeys
  * @returns {Promise<void>} 失敗したときは通知してから reject する
  */
-const writeToStorage = (items, removeKeys = []) => {
+export const writeToStorage = (items, removeKeys = []) => {
 	return chrome.storage.local.set(items)
 		.then(() => removeKeys.length ? chrome.storage.local.remove(removeKeys) : undefined)
 		.catch(error => {
@@ -112,7 +99,7 @@ const writeToStorage = (items, removeKeys = []) => {
 			throw error;
 		});
 };
-const saveToStorage = (key, value) => {
+export const saveToStorage = (key, value) => {
 	writeToStorage({[key]: value}).catch(() => {});
 };
 
@@ -122,7 +109,7 @@ const saveToStorage = (key, value) => {
  *	bytesInUse: number;
  * }>}
  */
-const fetchUsage = () => {
+export const fetchUsage = () => {
 	return chrome.storage.local.getBytesInUse().then(bytesInUse => ({bytesInUse}));
 };
 
@@ -135,7 +122,7 @@ const fetchUsage = () => {
 * 	function(T): void
 * ]}
 */
-const useSetting = (settingKey, defaultValue) => {
+export const useSetting = (settingKey, defaultValue) => {
 	const storageKey = `setting.${settingKey}`;
 	const [value, setValue] = useState(defaultValue);
 	useEffect(() => {
@@ -159,9 +146,11 @@ const useSetting = (settingKey, defaultValue) => {
  * 	allList: T[]
  * 	add: function(T): void
  * 	save: function(): void
+ * 	saveList: function(function(T[]): T[]): void
+ * 	remove: function(T): void
  * }}
  */
-const useList = (load, write) => {
+export const useList = (load, write) => {
 	const [allList, setList] = useState(() => {
 		// 変数に入れないと any ではなく never 型となってしまい、 setList 部分で型エラーとなる問題対策
 		const empty = [];
@@ -177,20 +166,28 @@ const useList = (load, write) => {
 	useEffect(() => {
 		load(update);
 	}, [load, update]);
-	const add = useCallback(value => {
-		const newList = [...latestListRef.current, value];
+	/** 最新の一覧から作った新しい一覧に置き換えて保存する */
+	const saveList = useCallback(change => {
+		const newList = change(latestListRef.current);
 		write(newList);
 		update(newList);
 	}, [write, update]);
+	const add = useCallback(value => {
+		saveList(list => [...list, value]);
+	}, [saveList]);
 	const save = useCallback(() => {
-		write(latestListRef.current);
 		// 記録は書き換えられる (mutable) ため、作り直して描画し直す
-		update([...latestListRef.current]);
-	}, [write, update]);
+		saveList(list => [...list]);
+	}, [saveList]);
+	const remove = useCallback(value => {
+		saveList(list => list.filter(v => v !== value));
+	}, [saveList]);
 	return {
 		allList,
 		add,
 		save,
+		saveList,
+		remove,
 	};
 };
 
@@ -203,7 +200,7 @@ const useList = (load, write) => {
  * @param {Object[]=} options.defaultValue
  * @returns {ReturnType<typeof useList<T>> & {isLoaded: boolean}}
  */
-const useStorageList = (storageKey, {
+export const useStorageList = (storageKey, {
 	normalize,
 	defaultValue,
 } = {}) => {
@@ -228,7 +225,7 @@ const useStorageList = (storageKey, {
  * @param {boolean} isTodosLoaded
  * @returns {ReturnType<typeof useList<TimeRecord>>}
  */
-const useRecordList = (todos, isTodosLoaded) => {
+export const useRecordList = (todos, isTodosLoaded) => {
 	/**
 	 * 月ごとのキーに前回保存した JSON（保存のたびに作り直す）
 	 * 読み込むまでは null（storage の内容が分からないうちに書き込むと、その月の他の記録を消してしまう）
@@ -260,7 +257,7 @@ const useRecordList = (todos, isTodosLoaded) => {
 			const {records, savedJson} = loadRecords(items, record => TimeRecord.load(record, todoById));
 			// 項目名のあるオブジェクト（以前の形式）で保存している月は、読み込んだ後の JSON が同じでも配列で保存し直す
 			for (const key of savedJson.keys()) {
-				if (items[key].some(record => !Array.isArray(record))) savedJson.set(key, '');
+				if (/** @type {unknown[]} */ (items[key]).some(record => !Array.isArray(record))) savedJson.set(key, '');
 			}
 			savedJsonRef.current = savedJson;
 			linkRecordsToTodos(records, todos.filter(isActiveTodo));
@@ -284,7 +281,7 @@ const inputCommitDelayMs = 1000;
  * 	inputRef?: any; // TODO: type定義
  * } & Object<string, any>} param0 そのほかは input にそのまま渡す
  */
-const LazyInput = ({
+export const LazyInput = ({
 	value,
 	onCommit,
 	inputRef,
@@ -339,9 +336,10 @@ const titleSize = 40;
  * @param {boolean=} param0.isEditable
  * @param {boolean=} param0.hideDate
  * @param {any=} param0.titleRef // TODO: type定義
+ * @param {any=} param0.revision MemoRecordView で描画し直すかの判定にだけ使う
  * @returns
  */
-const RecordView = ({
+export const RecordView = ({
 	types,
 	record,
 	save,
@@ -442,6 +440,16 @@ const RecordView = ({
 };
 
 /**
+ * 集計結果の詳細のように多くの記録を並べるときの RecordView。計測中の時間を表示し直す毎秒の再描画で、終了した記録を描画し直さない
+ * 記録は書き換えられる (mutable) ため record が同じでも中身が変わっていることがある。そのため保存のたびに作り直される一覧を revision に渡し、それも比べる
+ * 計測中の記録は経過時間が変わるため、いつも描画し直す
+ */
+export const MemoRecordView = memo(RecordView, (prev, next) => {
+	const keys = Object.keys(next);
+	return !!next.record.end && keys.length === Object.keys(prev).length && keys.every(key => prev[key] === next[key]);
+});
+
+/**
  * 記録の開始・終了時刻を編集する
  * 前後の記録と重ならず、開始日の中 (0:00～24:00) に収まる範囲に制限する
  * @param {{
@@ -449,13 +457,15 @@ const RecordView = ({
  * 	prev?: TimeRecord;
  * 	next?: TimeRecord;
  * 	save: function(): void;
+ * 	remove: function(TimeRecord): void;
  * }} param0
  */
-const EditTimeForm = ({
+export const EditTimeForm = ({
 	record,
 	prev,
 	next,
 	save,
+	remove,
 }) => {
 	const initialStart = Formats.ISODateTimeString(record.start);
 	const initialEnd = record.end ? Formats.ISODateTimeString(record.end) : '';
@@ -468,12 +478,38 @@ const EditTimeForm = ({
 	const startMax = Formats.ISODateTimeString(Math.min(maxMs, record.endOfStartDate - 1000));
 	// 計測中に戻せるのは今日の最後の記録だけ (前日以前は 24:00 で自動終了されるため)
 	const canResume = !next && record.isDateOf(startOfDate());
+	// 削除した時間帯を、同じ日の前後の記録で埋めることもできる
+	const removeOptions = [
+		{value: 'remove', label: '削除', message: 'この記録を削除しますか？'},
+		prev?.endOfStartDate === record.endOfStartDate && {
+			value: 'remove-extend-prev',
+			label: '削除して前の記録を延ばす',
+			message: 'この記録を削除し、前の記録の終了をこの記録の終了まで延ばしますか？',
+			// 消す記録が計測中なら、前の記録が計測中になる
+			beforeRemove: () => prev.setTime(prev.start, record.end),
+		},
+		next?.endOfStartDate === record.endOfStartDate && {
+			value: 'remove-extend-next',
+			label: '削除して次の記録を早める',
+			message: 'この記録を削除し、次の記録の開始をこの記録の開始まで早めますか？',
+			beforeRemove: () => next.setTime(record.start, next.end),
+		},
+	].filter(option => !!option);
 	return createElement(
 		'form',
 		{
 			method: 'dialog',
 			// 入力値のチェック (前後の記録と重ならない・終了は開始以降) は input の min/max/required で行う
-			onSubmit: () => {
+			onSubmit: e => {
+				const submitter = /** @type {HTMLButtonElement | null} */ (/** @type {SubmitEvent} */ (e.nativeEvent).submitter);
+				const removeOption = removeOptions.find(option => option.value === submitter?.value);
+				if (removeOption) {
+					// 前後の記録を先に書き換えてから消すと、保存が1回で済む
+					// FIXME: mutableをやめる
+					removeOption.beforeRemove?.();
+					remove(record);
+					return;
+				}
 				// datetime-local の値はタイムゾーンなしのため、ローカル時刻として解釈される
 				// 秒未満を落とさないよう、変更していない値は元のまま使う
 				const startMs = start === initialStart ? record.start : new Date(start).getTime();
@@ -515,10 +551,22 @@ const EditTimeForm = ({
 			canResume && '(空欄にすると計測中に戻る)',
 		),
 		createElement('button', {}, '確定'),
+		createElement('br'),
+		removeOptions.map(({value, label, message}) => createElement('button', {
+			key: value,
+			value,
+			// 入力途中の時刻が不正でも削除できるよう、入力値のチェックをしない
+			formNoValidate: true,
+			onClick: e => {
+				if (!window.confirm(message)) e.preventDefault();
+			},
+		}, label)),
 	);
 };
 
 const groupNothingName = '(グループなし)';
+/** 期限がこれより近い ToDo を「期限が近い」とする */
+const closeToDeadlineMs = 3 * 24 * 60 * 60 * 1000;
 
 /**
  * @param {{
@@ -537,7 +585,7 @@ const groupNothingName = '(グループなし)';
  * }} param0
  * @returns
  */
-const TodoRow = ({
+export const TodoRow = ({
 	todo,
 	isTodoEditMode,
 	usingTodoGroup,
@@ -615,7 +663,7 @@ const TodoRow = ({
 				},
 			},
 		) : todo.deadline && createElement('span', {
-			className: todo.deadline < Date.now() ? 'expired-deadline' : todo.deadline < (Date.now() + 3 * 24 * 60 * 60 * 1000) ? 'close-to-deadline' : null,
+			className: todo.deadline < Date.now() ? 'expired-deadline' : todo.deadline < (Date.now() + closeToDeadlineMs) ? 'close-to-deadline' : null,
 		}, `(-${Formats.localeDeadlineDateString(todo.deadline)})`)),
 		' [',
 		createElement('span', {
@@ -710,7 +758,7 @@ const TodoRow = ({
  * }>} param0
  * @returns
  */
-const Checkbox = ({
+export const Checkbox = ({
 	children,
 	checked,
 	onChange,
@@ -752,7 +800,7 @@ const Checkbox = ({
 };
 
 // forwardRefの型指定が難しいためhookにした
-const useDialog = () => {
+export const useDialog = () => {
 	/** @type {React.MutableRefObject<HTMLDialogElement | null>} */
 	const dialogRef = useRef(null);
 	const showModalDialog = useCallback(() => dialogRef.current?.showModal(), []);
@@ -812,7 +860,7 @@ const useDialog = () => {
 * }>} param0
 * @returns
 */
-const EditModeTab = ({
+export const EditModeTab = ({
 	children,
 	checked,
 	onChange,
@@ -850,16 +898,8 @@ const EditModeTab = ({
 	);
 };
 
-/**
- *
- * @param {{name: string}[]} types
- * @param {string} current
- * @returns
- */
-const typesToNamesWithCurrent = (types, current) => {
-	const names = types.map(({name}) => name);
-	return names.includes(current) ? names : [current, ...names];
-};
+/** 古い ToDo を畳むとき、一覧ごとに表示する件数 */
+const recentTodoCount = 5;
 
 const defaultTodoGroups = [
 	'対応待ち',
@@ -875,6 +915,21 @@ const defaultTypes = [{
 }, {
 	name: '中断',
 }];
+
+/**
+ * @param {{tree: WorkTimeTree[], ordered?: boolean}} param0
+ */
+const WorkTimeTreeList = ({tree, ordered}) => createElement(ordered ? 'ol' : 'ul', {}, tree.map(({key, seconds, children}) => {
+	return createElement(
+		'li',
+		{key},
+		// キーが空になるのはタイトルだけ
+		`${key || '(タイトルなし)'}: ${Formats.seconds(seconds)}`,
+		children && createElement(WorkTimeTreeList, {tree: children}),
+	);
+}));
+// 閉じたダイアログの中身も毎秒の再描画で作り直さないよう、tree が変わったときだけ描画する
+const MemoWorkTimeTreeList = memo(WorkTimeTreeList);
 
 const App = () => {
 	const {
@@ -894,18 +949,23 @@ const App = () => {
 	const [newTodoTitle, setNewTodoTitle] = useState('');
 	const [newTodoMemo, setNewTodoMemo] = useState('');
 	const [newTodoGroup, setNewTodoGroup] = useState('');
+	// 古い ToDo を表示しているグループ（グループなしは undefined）。開き直すと畳んだ状態に戻る
+	const [expandedTodoLists, setExpandedTodoLists] = useState(() => new Set());
 
 	const {
 		allList: types,
 		add: addType,
 		save: saveType,
+		saveList: saveTypeList,
+		remove: removeType,
 	} = useStorageList('type', {
 		defaultValue: defaultTypes,
 	});
 	const {
 		allList: todoGroups,
 		add: addTodoGroup,
-		save: saveTodoGroup,
+		saveList: saveTodoGroupList,
+		remove: removeTodoGroup,
 	} = useStorageList('todo-group', {
 		defaultValue: defaultTodoGroups,
 	});
@@ -915,6 +975,7 @@ const App = () => {
 		allList,
 		add,
 		save,
+		remove,
 	} = useRecordList(allTodos, isTodosLoaded);
 
 	const [isTypeEditMode, setTypeEditMode] = useState(false);
@@ -1003,8 +1064,9 @@ const App = () => {
 		}, {date: 'null', count: 0}).count;
 	}, [allList]);
 
-	/** @type{ReturnType<typeof useState<typeof todoWorkTimes[number]>>} */
-	const [todoWorkTime, setTodoWorkTime] = useState();
+	/** ToDo の時間・日ごとの合計ボタンで開く、日付別の小計 (開いた時点の値) */
+	/** @type{ReturnType<typeof useState<{title: string, total: number, byDate: WorkTimeTree[]}>>} */
+	const [subtotal, setSubtotal] = useState();
 	const {
 		Dialog: SubtotalDialog,
 		showModalDialog: showSubtotalModalDialog,
@@ -1019,11 +1081,11 @@ const App = () => {
 	/**
 	 * @param {TimeRecord} record
 	 */
-	const editTime = record => {
+	const editTime = useCallback(record => {
 		// 開くたびに key を変えて、前回キャンセルした入力内容を残さない
 		setEditTimeTarget({record, key: Date.now()});
 		showEditTimeModalDialog();
-	};
+	}, [showEditTimeModalDialog]);
 	const editTimeTargetIndex = editTimeTarget ? allList.indexOf(editTimeTarget.record) : -1;
 
 	// TODO: 日付関連もう少し整理する
@@ -1062,10 +1124,10 @@ const App = () => {
 		const date = dayOf(base, dayOffset);
 		setTargetRange(date, date);
 	};
-	// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-	// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
-	const grouped = Map.groupBy(allList.filter(record => record.isDateOf(targetDate) && record.start < targetEndMs), ({type}) => type);
-	const totalWorkTimeSeconds = [...grouped.values()].flatMap(records => records.map(record => is勤務外(record.type) ? 0 : record.workTimeSeconds)).reduce((a, b) => a + b, 0);
+	const targetRecords = allList.filter(record => record.isDateOf(targetDate) && record.start < targetEndMs);
+	const grouped = Map.groupBy(targetRecords, ({type}) => type);
+	const targetWorkRecords = targetRecords.filter(record => !is勤務外(record.type));
+	const totalWorkTimeSeconds = targetWorkRecords.reduce((acc, record) => acc + record.workTimeSeconds, 0);
 
 	// 計測中の時間を表示し直すための再描画。allList は作り直さないので、allList に依存するメモ化は保たれる
 	const [, rerender] = useReducer(count => count + 1, 0);
@@ -1138,15 +1200,24 @@ const App = () => {
 						{
 							onClick: () => {
 								if (window.confirm(`「${type.name}」を削除しますか？`)) {
-									// FIXME: mutableをやめる
-									// types.toSpliced が使える
-									types.splice(i, 1);
-									saveType();
+									removeType(type);
 								}
 							},
 						},
 						'削除',
 					),
+					isTypeEditMode && createElement('button', {
+						disabled: i === 0,
+						onClick: () => {
+							saveTypeList(list => swapped(list, i, i - 1));
+						},
+					}, '上へ移動'),
+					isTypeEditMode && createElement('button', {
+						disabled: i === types.length - 1,
+						onClick: () => {
+							saveTypeList(list => swapped(list, i, i + 1));
+						},
+					}, '下へ移動'),
 					createElement(
 						'button',
 						{
@@ -1250,9 +1321,24 @@ const App = () => {
 			),
 			(() => {
 				const currentTodoIndex = currentRecord && todoIndex.indexOf(currentRecord);
-				const createList = (list) => {
+				/**
+				 * @param {Todo[]} list
+				 * @param {string} [listKey] グループ名。グループなしは undefined
+				 */
+				const createList = (list, listKey) => {
 					if (list.length === 0) return createElement('ul', {}, createElement('li', {}, 'ToDoなし'));
-					return createElement('ul', {}, list.map((todo) => {
+					// グループごとの一覧では、計測したことのある ToDo のうち最後に計測した日時が新しいもの・計測したことがない ToDo・計測中の ToDo・
+					// 期限切れか期限が近い ToDo（期限を管理するとき）だけを表示し、残りは畳む。並び順は変えない
+					// グループを使わないときは畳まずに全件表示する
+					const lastWorkedAts = new Map(list.map(todo => [todo, todoWorkTimes[todoIndex.indexOfTodo(todo)].lastWorkedAt]));
+					const recentTodos = new Set(list.filter(todo => lastWorkedAts.get(todo) !== undefined)
+						.toSorted((a, b) => lastWorkedAts.get(b) - lastWorkedAts.get(a)).slice(0, recentTodoCount));
+					const collapsedList = !usingTodoGroup ? list : list.filter(todo => recentTodos.has(todo) || lastWorkedAts.get(todo) === undefined || todoIndex.indexOfTodo(todo) === currentTodoIndex
+						|| (usingTodoDeadline && !!todo.deadline && todo.deadline < Date.now() + closeToDeadlineMs));
+					const oldTodoCount = list.length - collapsedList.length;
+					const isExpanded = expandedTodoLists.has(listKey);
+					const visibleList = isExpanded ? list : collapsedList;
+					return createElement('ul', {}, visibleList.map((todo) => {
 						const i = todoIndex.indexOfTodo(todo);
 						const todoWorkTimeTatal = todoWorkTimes[i].total;
 						const isCurrent = i === currentTodoIndex;
@@ -1278,18 +1364,27 @@ const App = () => {
 									todoWorkTimeTatal,
 									isDuplicate: todoIndex.findByKey(todo) !== todo,
 									showSubtotal: () => {
-										setTodoWorkTime(todoWorkTimes[i]);
+										const {todo: {type, title}, total, subtotalByDate} = todoWorkTimes[i];
+										const byDate = [...subtotalByDate].map(([key, seconds]) => ({key, seconds}));
+										setSubtotal({title: `${type}(${title})`, total, byDate});
 										showSubtotalModalDialog();
 									},
 								},
 							),
 						);
-					}));
+					}), oldTodoCount > 0 && createElement('li', {},
+						createElement('button', {
+							onClick: () => {
+								const next = new Set(expandedTodoLists);
+								if (isExpanded) next.delete(listKey);
+								else next.add(listKey);
+								setExpandedTodoLists(next);
+							},
+						}, isExpanded ? '古いToDoを隠す' : `古いToDoを表示（${oldTodoCount}件）`),
+					));
 				};
 				if (usingTodoGroup) {
 					const groupNothingValue = undefined;
-					// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-					// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 					const groupdMap = Map.groupBy(todos, (({group}) => todoGroups.includes(group) ? group : groupNothingValue));
 					return createElement(
 						React.Fragment,
@@ -1308,11 +1403,7 @@ const App = () => {
 										createElement('button', {
 											onClick: () => {
 												if (window.confirm(`グループ「${group}」を削除しますか？`)) {
-													// FIXME: mutableをやめる
-													// types.toSpliced が使える
-													const i = todoGroups.indexOf(group);
-													todoGroups.splice(i, 1);
-													saveTodoGroup();
+													removeTodoGroup(group);
 												}
 											},
 										}, '削除'),
@@ -1324,36 +1415,30 @@ const App = () => {
 													alert(`グループ「${newName}」は既に存在します`);
 													return;
 												}
-												// FIXME: mutableをやめる
-												todoGroups[groupIndex] = newName;
 												// ToDo はグループを名前で持つので、合わせて書き換えないと「(グループなし)」になる
 												const groupTodos = todos.filter(todo => todo.group === group);
 												groupTodos.forEach(todo => {
 													todo.group = newName;
 												});
-												saveTodoGroup();
+												saveTodoGroupList(list => list.with(groupIndex, newName));
 												if (groupTodos.length) saveTodo();
 											},
 										}, '名前変更'),
 										createElement('button', {
 											disabled: groupIndex === 0,
 											onClick: () => {
-												// FIXME: mutableをやめる
-												swap(todoGroups, groupIndex, groupIndex - 1);
-												saveTodoGroup();
+												saveTodoGroupList(list => swapped(list, groupIndex, groupIndex - 1));
 											},
 										}, '上へ移動'),
 										createElement('button', {
 											disabled: groupIndex === todoGroups.length - 1,
 											onClick: () => {
-												// FIXME: mutableをやめる
-												swap(todoGroups, groupIndex, groupIndex + 1);
-												saveTodoGroup();
+												saveTodoGroupList(list => swapped(list, groupIndex, groupIndex + 1));
 											},
 										}, '下へ移動'),
 									),
 								),
-								createList(groupdMap.get(group) ?? []),
+								createList(groupdMap.get(group) ?? [], group),
 							);
 						}),
 					);
@@ -1373,8 +1458,6 @@ const App = () => {
 			usingTodoEstimation && createElement(
 				'ul',
 				{},
-				// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-				// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 				[...Map.groupBy(todoWorkTimes, ({todo}) => todo.type).entries()].map(([type, sameTypeTodoWorkTimes]) => {
 					const remainTime = sameTypeTodoWorkTimes.reduce((acc, {todo, total}) => {
 						return acc + calculateRemainingTime(todo, total);
@@ -1387,10 +1470,13 @@ const App = () => {
 				'form',
 				{
 					onSubmit: e => {
-						if (!todoGroups.includes(newTodoGroup)) {
-							addTodoGroup(newTodoGroup);
-						}
 						e.preventDefault();
+						if (todoGroups.includes(newTodoGroup)) {
+							alert(`グループ「${newTodoGroup}」は既に存在します`);
+							return;
+						}
+						addTodoGroup(newTodoGroup);
+						setNewTodoGroup('');
 					},
 				},
 				createElement(
@@ -1533,6 +1619,26 @@ const App = () => {
 			createElement('button', {onClick: () => setTargetDay(targetDate, 1)}, '翌日'),
 			createElement('br'),
 			`勤務時間Total: ${Formats.seconds(totalWorkTimeSeconds)}`,
+			' ',
+			createElement('button', {
+				onClick: () => {
+					// 毎秒の再描画で集計し直さないよう、押したときだけ集計する
+					// 計測中の記録の時間は描画時点から進んでいるので、各記録の時間はここで1回だけ求め、合計もそこから出す
+					const items = targetWorkRecords.map(record => ({record, seconds: record.workTimeSeconds}));
+					// 内訳は集計結果に合わせ、分類ごと。「同一タイトルで集約」のときはその下にタイトルごと
+					/** @type{(function(TimeRecord): string)[]} */
+					const keyOfs = [({type}) => type];
+					if (isAggregationVisible) keyOfs.push(({title}) => title || '');
+					// 日付は日付順のまま、各日の内訳だけ長い順にする
+					const byDate = [...Map.groupBy(items, ({record}) => Formats.localeDateString(record.start))].map(([date, sameDateItems]) => {
+						const children = sumWorkTimeSecondsBy(sameDateItems, keyOfs);
+						return {key: date, seconds: children.reduce((acc, {seconds}) => acc + seconds, 0), children};
+					});
+					const total = byDate.reduce((acc, {seconds}) => acc + seconds, 0);
+					setSubtotal({title: '日ごとの勤務時間', total, byDate});
+					showSubtotalModalDialog();
+				},
+			}, '日ごとの合計'),
 			createElement('br'),
 			createElement(
 				Checkbox, {
@@ -1581,8 +1687,6 @@ const App = () => {
 				isAggregationVisible && createElement(
 					'ul',
 					{},
-					// @ts-expect-error TS2339: Property 'groupBy' does not exist on type 'MapConstructor'.
-					// もうすぐ型定義が追加される https://github.com/microsoft/TypeScript/pull/56805
 					[...Map.groupBy(records, ({title}) => title || '').entries()].map(([title, sameTitleRecords]) => {
 						const sameTitleWorkTimeSeconds = sameTitleRecords.map(record => record.workTimeSeconds).reduce((a, b) => a + b, 0);
 						return {
@@ -1607,7 +1711,7 @@ const App = () => {
 									{
 										key: record.start,
 									},
-									createElement(RecordView, {types, record, save, findTodo, editTime, finishAndAddRecord, isEditable: false}),
+									createElement(MemoRecordView, {types, record, save, findTodo, editTime, isEditable: false, revision: allList}),
 								);
 							})),
 						);
@@ -1620,7 +1724,7 @@ const App = () => {
 						{
 							key: record.start,
 						},
-						createElement(RecordView, {types, record, save, findTodo, editTime, finishAndAddRecord, isEditable: false}),
+						createElement(MemoRecordView, {types, record, save, findTodo, editTime, isEditable: false, revision: allList}),
 					);
 				})),
 			);
@@ -1644,20 +1748,15 @@ const App = () => {
 				prev: allList[editTimeTargetIndex - 1],
 				next: allList[editTimeTargetIndex + 1],
 				save,
+				remove,
 			}),
 		),
 		createElement(
 			SubtotalDialog,
 			{},
-			createElement('h3', {}, `${todoWorkTime?.todo.type}(${todoWorkTime?.todo.title})`),
-			todoWorkTime?.total && createElement('p', {}, `合計: ${Formats.seconds(todoWorkTime.total)}`),
-			createElement(
-				'ol',
-				{},
-				Array.from(todoWorkTime?.subtotalByDate?.entries() ?? []).map(([date, subtotal]) => {
-					return createElement('li', {key: date}, `${date}: ${Formats.seconds(subtotal)}`);
-				}),
-			),
+			createElement('h3', {}, subtotal?.title),
+			subtotal && createElement('p', {}, `合計: ${Formats.seconds(subtotal.total)}`),
+			subtotal && createElement(MemoWorkTimeTreeList, {tree: subtotal.byDate, ordered: true}),
 		),
 	);
 };
