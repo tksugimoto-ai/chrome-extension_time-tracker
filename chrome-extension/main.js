@@ -9,9 +9,13 @@ import {
 	Formats,
 	todoKeyOf,
 	addRecordsToTodoWorkTimes,
+	addToSubtotalByDate,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
+	swapped,
+	is勤務外,
+	typesToNamesWithCurrent,
 } from './utils.js';
 import {loadRecords, markUnsaved, planRecordSave} from './record-storage.js';
 
@@ -29,16 +33,6 @@ const {
 } = React;
 
 
-/**
- *
- * @param {any[]} array
- * @param {number} index1
- * @param {number} index2
- */
-const swap = (array, index1, index2) => {
-	[array[index1], array[index2]] = [array[index2], array[index1]];
-};
-
 const domParser = new DOMParser();
 
 /**
@@ -49,7 +43,7 @@ const domParser = new DOMParser();
  *   url?: string,
  * }> | null}
  */
-const readClipboardData = clipboardData => {
+export const readClipboardData = clipboardData => {
 	const items = Array.from(clipboardData.items);
 	const plain = items.find(item => item.type === 'text/plain');
 	if (!plain) return null;
@@ -72,14 +66,6 @@ const readClipboardData = clipboardData => {
 	});
 };
 
-// TODO: types に組み込む
-const is勤務外 = type => {
-	return [
-		'昼休憩',
-		'中断',
-	].includes(type);
-};
-
 // バックアップから復元されたら、古いデータで上書きしないよう読み込み直す (import.js から送られる)
 // 復元したデータを、まだ反映していない入力 (LazyInput) で上書きしないよう捨てる
 let isDiscardingPendingInputs = false;
@@ -89,7 +75,7 @@ chrome.runtime.onMessage.addListener(message => {
 	location.reload();
 });
 
-const loadFromStorage = (key, callback) => {
+export const loadFromStorage = (key, callback) => {
 	chrome.storage.local.get(key, items => {
 		callback(items[key]);
 	});
@@ -100,7 +86,7 @@ const loadFromStorage = (key, callback) => {
  * @param {string[]=} removeKeys
  * @returns {Promise<void>} 失敗したときは通知してから reject する
  */
-const writeToStorage = (items, removeKeys = []) => {
+export const writeToStorage = (items, removeKeys = []) => {
 	return chrome.storage.local.set(items)
 		.then(() => removeKeys.length ? chrome.storage.local.remove(removeKeys) : undefined)
 		.catch(error => {
@@ -109,7 +95,7 @@ const writeToStorage = (items, removeKeys = []) => {
 			throw error;
 		});
 };
-const saveToStorage = (key, value) => {
+export const saveToStorage = (key, value) => {
 	writeToStorage({[key]: value}).catch(() => {});
 };
 
@@ -119,7 +105,7 @@ const saveToStorage = (key, value) => {
  *	bytesInUse: number;
  * }>}
  */
-const fetchUsage = () => {
+export const fetchUsage = () => {
 	return chrome.storage.local.getBytesInUse().then(bytesInUse => ({bytesInUse}));
 };
 
@@ -132,7 +118,7 @@ const fetchUsage = () => {
 * 	function(T): void
 * ]}
 */
-const useSetting = (settingKey, defaultValue) => {
+export const useSetting = (settingKey, defaultValue) => {
 	const storageKey = `setting.${settingKey}`;
 	const [value, setValue] = useState(defaultValue);
 	useEffect(() => {
@@ -156,10 +142,11 @@ const useSetting = (settingKey, defaultValue) => {
  * 	allList: T[]
  * 	add: function(T): void
  * 	save: function(): void
+ * 	saveList: function(function(T[]): T[]): void
  * 	remove: function(T): void
  * }}
  */
-const useList = (load, write) => {
+export const useList = (load, write) => {
 	const [allList, setList] = useState(() => {
 		// 変数に入れないと any ではなく never 型となってしまい、 setList 部分で型エラーとなる問題対策
 		const empty = [];
@@ -175,25 +162,27 @@ const useList = (load, write) => {
 	useEffect(() => {
 		load(update);
 	}, [load, update]);
+	/** 最新の一覧から作った新しい一覧に置き換えて保存する */
+	const saveList = useCallback(change => {
+		const newList = change(latestListRef.current);
+		write(newList);
+		update(newList);
+	}, [write, update]);
 	const add = useCallback(value => {
-		const newList = [...latestListRef.current, value];
-		write(newList);
-		update(newList);
-	}, [write, update]);
+		saveList(list => [...list, value]);
+	}, [saveList]);
 	const save = useCallback(() => {
-		write(latestListRef.current);
 		// 記録は書き換えられる (mutable) ため、作り直して描画し直す
-		update([...latestListRef.current]);
-	}, [write, update]);
+		saveList(list => [...list]);
+	}, [saveList]);
 	const remove = useCallback(value => {
-		const newList = latestListRef.current.filter(v => v !== value);
-		write(newList);
-		update(newList);
-	}, [write, update]);
+		saveList(list => list.filter(v => v !== value));
+	}, [saveList]);
 	return {
 		allList,
 		add,
 		save,
+		saveList,
 		remove,
 	};
 };
@@ -207,7 +196,7 @@ const useList = (load, write) => {
  * @param {Object[]=} options.defaultValue
  * @returns {ReturnType<typeof useList<T>>}
  */
-const useStorageList = (storageKey, {
+export const useStorageList = (storageKey, {
 	transform,
 	defaultValue,
 } = {}) => {
@@ -224,7 +213,7 @@ const useStorageList = (storageKey, {
  * 記録の一覧。保存は開始月ごとのキーに分け、変わった月だけ書き込む
  * @returns {ReturnType<typeof useList<TimeRecord>>}
  */
-const useRecordList = () => {
+export const useRecordList = () => {
 	/**
 	 * 月ごとのキーに前回保存した JSON（保存のたびに作り直す）
 	 * 読み込むまでは null（storage の内容が分からないうちに書き込むと、その月の他の記録を消してしまう）
@@ -265,7 +254,7 @@ const inputCommitDelayMs = 1000;
  * 	inputRef?: any; // TODO: type定義
  * } & Object<string, any>} param0 そのほかは input にそのまま渡す
  */
-const LazyInput = ({
+export const LazyInput = ({
 	value,
 	onCommit,
 	inputRef,
@@ -330,7 +319,7 @@ const isLongRunning = record => !!record && !record.end && record.workTimeSecond
  * @param {any=} param0.revision MemoRecordView で描画し直すかの判定にだけ使う
  * @returns
  */
-const RecordView = ({
+export const RecordView = ({
 	types,
 	record,
 	save,
@@ -431,7 +420,7 @@ const RecordView = ({
  * 記録は書き換えられる (mutable) ため record が同じでも中身が変わっていることがある。そのため保存のたびに作り直される一覧を revision に渡し、それも比べる
  * 計測中の記録は経過時間が変わるため、いつも描画し直す
  */
-const MemoRecordView = memo(RecordView, (prev, next) => {
+export const MemoRecordView = memo(RecordView, (prev, next) => {
 	const keys = Object.keys(next);
 	return !!next.record.end && keys.length === Object.keys(prev).length && keys.every(key => prev[key] === next[key]);
 });
@@ -447,7 +436,7 @@ const MemoRecordView = memo(RecordView, (prev, next) => {
  * 	remove: function(TimeRecord): void;
  * }} param0
  */
-const EditTimeForm = ({
+export const EditTimeForm = ({
 	record,
 	prev,
 	next,
@@ -571,7 +560,7 @@ const groupNothingName = '(グループなし)';
  * }} param0
  * @returns
  */
-const TodoRow = ({
+export const TodoRow = ({
 	todo,
 	isTodoEditMode,
 	usingTodoGroup,
@@ -746,7 +735,7 @@ const TodoRow = ({
  * }>} param0
  * @returns
  */
-const Checkbox = ({
+export const Checkbox = ({
 	children,
 	checked,
 	onChange,
@@ -788,7 +777,7 @@ const Checkbox = ({
 };
 
 // forwardRefの型指定が難しいためhookにした
-const useDialog = () => {
+export const useDialog = () => {
 	/** @type {React.MutableRefObject<HTMLDialogElement | null>} */
 	const dialogRef = useRef(null);
 	const showModalDialog = useCallback(() => dialogRef.current?.showModal(), []);
@@ -848,7 +837,7 @@ const useDialog = () => {
 * }>} param0
 * @returns
 */
-const EditModeTab = ({
+export const EditModeTab = ({
 	children,
 	checked,
 	onChange,
@@ -886,17 +875,6 @@ const EditModeTab = ({
 	);
 };
 
-/**
- *
- * @param {{name: string}[]} types
- * @param {string} current
- * @returns
- */
-const typesToNamesWithCurrent = (types, current) => {
-	const names = types.map(({name}) => name);
-	return names.includes(current) ? names : [current, ...names];
-};
-
 const defaultTodoGroups = [
 	'対応待ち',
 	'template',
@@ -931,13 +909,16 @@ const App = () => {
 		allList: types,
 		add: addType,
 		save: saveType,
+		saveList: saveTypeList,
+		remove: removeType,
 	} = useStorageList('type', {
 		defaultValue: defaultTypes,
 	});
 	const {
 		allList: todoGroups,
 		add: addTodoGroup,
-		save: saveTodoGroup,
+		saveList: saveTodoGroupList,
+		remove: removeTodoGroup,
 	} = useStorageList('todo-group', {
 		defaultValue: defaultTodoGroups,
 	});
@@ -1042,8 +1023,9 @@ const App = () => {
 		}, {date: 'null', count: 0}).count;
 	}, [allList]);
 
-	/** @type{ReturnType<typeof useState<typeof todoWorkTimes[number]>>} */
-	const [todoWorkTime, setTodoWorkTime] = useState();
+	/** ToDo の時間・日ごとの合計ボタンで開く、日付別の小計 (開いた時点の値) */
+	/** @type{ReturnType<typeof useState<{title: string, total: number, subtotalByDate: Map<string, number>}>>} */
+	const [subtotal, setSubtotal] = useState();
 	const {
 		Dialog: SubtotalDialog,
 		showModalDialog: showSubtotalModalDialog,
@@ -1108,7 +1090,8 @@ const App = () => {
 	const sumTargetSeconds = records => records.map(record => record.secondsWithin(targetStartMs, targetEndMs)).reduce((a, b) => a + b, 0);
 	const targetRecords = allList.filter(record => record.overlaps(targetStartMs, targetEndMs));
 	const grouped = Map.groupBy(targetRecords, ({type}) => type);
-	const totalWorkTimeSeconds = sumTargetSeconds(targetRecords.filter(record => !is勤務外(record.type)));
+	const targetWorkRecords = targetRecords.filter(record => !is勤務外(record.type));
+	const totalWorkTimeSeconds = sumTargetSeconds(targetWorkRecords);
 
 	// 計測中の時間を表示し直すための再描画。allList は作り直さないので、allList に依存するメモ化は保たれる
 	const [, rerender] = useReducer(count => count + 1, 0);
@@ -1163,15 +1146,24 @@ const App = () => {
 						{
 							onClick: () => {
 								if (window.confirm(`「${type.name}」を削除しますか？`)) {
-									// FIXME: mutableをやめる
-									// types.toSpliced が使える
-									types.splice(i, 1);
-									saveType();
+									removeType(type);
 								}
 							},
 						},
 						'削除',
 					),
+					isTypeEditMode && createElement('button', {
+						disabled: i === 0,
+						onClick: () => {
+							saveTypeList(list => swapped(list, i, i - 1));
+						},
+					}, '上へ移動'),
+					isTypeEditMode && createElement('button', {
+						disabled: i === types.length - 1,
+						onClick: () => {
+							saveTypeList(list => swapped(list, i, i + 1));
+						},
+					}, '下へ移動'),
 					createElement(
 						'button',
 						{
@@ -1305,7 +1297,8 @@ const App = () => {
 									todoWorkTimeTatal,
 									isDuplicate: todoIndexByKey.get(key) !== i,
 									showSubtotal: () => {
-										setTodoWorkTime(todoWorkTimes[i]);
+										const {todo: {type, title}, total, subtotalByDate} = todoWorkTimes[i];
+										setSubtotal({title: `${type}(${title})`, total, subtotalByDate});
 										showSubtotalModalDialog();
 									},
 								},
@@ -1333,11 +1326,7 @@ const App = () => {
 										createElement('button', {
 											onClick: () => {
 												if (window.confirm(`グループ「${group}」を削除しますか？`)) {
-													// FIXME: mutableをやめる
-													// types.toSpliced が使える
-													const i = todoGroups.indexOf(group);
-													todoGroups.splice(i, 1);
-													saveTodoGroup();
+													removeTodoGroup(group);
 												}
 											},
 										}, '削除'),
@@ -1349,31 +1338,25 @@ const App = () => {
 													alert(`グループ「${newName}」は既に存在します`);
 													return;
 												}
-												// FIXME: mutableをやめる
-												todoGroups[groupIndex] = newName;
 												// ToDo はグループを名前で持つので、合わせて書き換えないと「(グループなし)」になる
 												const groupTodos = todos.filter(todo => todo.group === group);
 												groupTodos.forEach(todo => {
 													todo.group = newName;
 												});
-												saveTodoGroup();
+												saveTodoGroupList(list => list.with(groupIndex, newName));
 												if (groupTodos.length) saveTodo();
 											},
 										}, '名前変更'),
 										createElement('button', {
 											disabled: groupIndex === 0,
 											onClick: () => {
-												// FIXME: mutableをやめる
-												swap(todoGroups, groupIndex, groupIndex - 1);
-												saveTodoGroup();
+												saveTodoGroupList(list => swapped(list, groupIndex, groupIndex - 1));
 											},
 										}, '上へ移動'),
 										createElement('button', {
 											disabled: groupIndex === todoGroups.length - 1,
 											onClick: () => {
-												// FIXME: mutableをやめる
-												swap(todoGroups, groupIndex, groupIndex + 1);
-												saveTodoGroup();
+												saveTodoGroupList(list => swapped(list, groupIndex, groupIndex + 1));
 											},
 										}, '下へ移動'),
 									),
@@ -1556,6 +1539,20 @@ const App = () => {
 			createElement('button', {onClick: () => setTargetDay(targetDate, 1)}, '翌日'),
 			createElement('br'),
 			`勤務時間Total: ${Formats.seconds(totalWorkTimeSeconds)}`,
+			' ',
+			createElement('button', {
+				onClick: () => {
+					// 毎秒の再描画で集計し直さないよう、押したときだけ集計する
+					/** @type{Map<string, number>} */
+					const subtotalByDate = new Map();
+					// 日付を跨いだ記録は、集計する期間に含まれる分だけを日ごとに分けて数える
+					targetWorkRecords.forEach(record => addToSubtotalByDate(subtotalByDate, record, targetStartMs, targetEndMs));
+					// 計測中の記録の時間は描画時点から進んでいるので、合計も押したときの小計から出す
+					const total = [...subtotalByDate.values()].reduce((acc, seconds) => acc + seconds, 0);
+					setSubtotal({title: '日ごとの勤務時間', total, subtotalByDate});
+					showSubtotalModalDialog();
+				},
+			}, '日ごとの合計'),
 			createElement('br'),
 			createElement(
 				Checkbox, {
@@ -1671,13 +1668,13 @@ const App = () => {
 		createElement(
 			SubtotalDialog,
 			{},
-			createElement('h3', {}, `${todoWorkTime?.todo.type}(${todoWorkTime?.todo.title})`),
-			todoWorkTime?.total && createElement('p', {}, `合計: ${Formats.seconds(todoWorkTime.total)}`),
+			createElement('h3', {}, subtotal?.title),
+			subtotal && createElement('p', {}, `合計: ${Formats.seconds(subtotal.total)}`),
 			createElement(
 				'ol',
 				{},
-				Array.from(todoWorkTime?.subtotalByDate?.entries() ?? []).map(([date, subtotal]) => {
-					return createElement('li', {key: date}, `${date}: ${Formats.seconds(subtotal)}`);
+				Array.from(subtotal?.subtotalByDate?.entries() ?? []).map(([date, seconds]) => {
+					return createElement('li', {key: date}, `${date}: ${Formats.seconds(seconds)}`);
 				}),
 			),
 		),

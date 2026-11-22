@@ -94,21 +94,6 @@ export class TimeRecord {
 		if (this.start >= rangeStartMs) return this.start < rangeEndMs;
 		return (this.end ?? Infinity) > rangeStartMs;
 	}
-	/**
-	 * 日付ごとの作業時間。日付を跨いだ記録は日の区切り (dayRangeOf) で分ける
-	 * @returns {[date: string, seconds: number][]} date は Formats.localeDateString。長さ 0 の記録も開始日に 0 秒で入れる
-	 */
-	get secondsByDate() {
-		const end = this.end ?? Date.now();
-		/** @type {[date: string, seconds: number][]} */
-		const result = [];
-		let day = dayRangeOf(new Date(this.start));
-		do {
-			result.push([Formats.localeDateString(day.start), this.secondsWithin(day.start, day.end)]);
-			day = dayRangeOf(new Date(day.end));
-		} while (day.start < end);
-		return result;
-	}
 }
 
 export const Formats = {
@@ -261,12 +246,33 @@ export const addRecordsToTodoWorkTimes = (todoWorkTimes, todoIndexByKey, records
 		}
 		const matched = result[i];
 		// 合計は日付ごとの小計を足して、秒未満の切り捨てで小計の和とずれないようにする
-		for (const [date, seconds] of record.secondsByDate) {
-			matched.total += seconds;
-			matched.subtotalByDate.set(date, (matched.subtotalByDate.get(date) ?? 0) + seconds);
-		}
+		matched.total += addToSubtotalByDate(matched.subtotalByDate, record);
 	}
 	return result;
+};
+
+/**
+ * 記録の作業時間を、日付ごとの小計に加算する (引数の Map を変更する)
+ * 日付を跨いだ記録は日の区切り (dayRangeOf) で分ける。期間を渡すと、期間に含まれる分だけを加算する
+ * @param {Map<string, number>} subtotalByDate キーは Formats.localeDateString
+ * @param {TimeRecord} record
+ * @param {number=} rangeStartMs
+ * @param {number=} rangeEndMs
+ * @returns {number} 加算した秒数
+ */
+export const addToSubtotalByDate = (subtotalByDate, record, rangeStartMs = -Infinity, rangeEndMs = Infinity) => {
+	const end = Math.min(record.end ?? Date.now(), rangeEndMs);
+	let added = 0;
+	let day = dayRangeOf(new Date(Math.max(record.start, rangeStartMs)));
+	// 長さ 0 の記録も、開始日に 0 秒で入れる
+	do {
+		const date = Formats.localeDateString(day.start);
+		const seconds = record.secondsWithin(day.start, day.end);
+		subtotalByDate.set(date, (subtotalByDate.get(date) ?? 0) + seconds);
+		added += seconds;
+		day = dayRangeOf(new Date(day.end));
+	} while (day.start < end);
+	return added;
 };
 
 /**
@@ -340,4 +346,35 @@ export const createDebouncedWriter = (write, delayMs) => {
 		},
 		flush,
 	};
+};
+
+/**
+ * 2つの要素を入れ替えた新しい配列を返す
+ * @template T
+ * @param {T[]} array
+ * @param {number} index1
+ * @param {number} index2
+ * @returns {T[]}
+ */
+export const swapped = (array, index1, index2) => {
+	return array.with(index1, array[index2]).with(index2, array[index1]);
+};
+
+// TODO: types に組み込む
+export const is勤務外 = type => {
+	return [
+		'昼休憩',
+		'中断',
+	].includes(type);
+};
+
+/**
+ *
+ * @param {{name: string}[]} types
+ * @param {string} current
+ * @returns
+ */
+export const typesToNamesWithCurrent = (types, current) => {
+	const names = types.map(({name}) => name);
+	return names.includes(current) ? names : [current, ...names];
 };

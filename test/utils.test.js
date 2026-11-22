@@ -10,9 +10,13 @@ import {
 	Formats,
 	todoKeyOf,
 	addRecordsToTodoWorkTimes,
+	addToSubtotalByDate,
 	calculateRemainingTime,
 	escapeCharacterClassMetaChar,
 	createDebouncedWriter,
+	swapped,
+	is勤務外,
+	typesToNamesWithCurrent,
 } from '../chrome-extension/utils.js';
 
 // 実行環境のタイムゾーンに依存しないよう、日時はローカル時刻で組み立てる
@@ -129,20 +133,6 @@ describe('TimeRecord', () => {
 		assert.equal(load(localTime(2026, 9, 22, 23, 0)).overlaps(...day), true, '前日から計測中');
 		assert.equal(load(localTime(2026, 9, 22, 23, 0), localTime(2026, 9, 23)).overlaps(...day), false, 'ちょうど 0:00 に終了');
 	});
-
-	it('secondsByDate は日付を跨いだ記録を 0:00 で分ける', () => {
-		const record = TimeRecord.load({type: '作業', start: localTime(2026, 9, 22, 23, 0), end: localTime(2026, 9, 24, 0, 30)});
-		assert.deepEqual(record.secondsByDate, [
-			[Formats.localeDateString(localTime(2026, 9, 22)), 60 * 60],
-			[Formats.localeDateString(localTime(2026, 9, 23)), 24 * 60 * 60],
-			[Formats.localeDateString(localTime(2026, 9, 24)), 30 * 60],
-		]);
-	});
-
-	it('secondsByDate は長さ 0 の記録も開始日に 0 秒で入れる', () => {
-		const record = TimeRecord.load({type: '作業', start: localTime(2026, 9, 23, 9, 0), end: localTime(2026, 9, 23, 9, 0)});
-		assert.deepEqual(record.secondsByDate, [[Formats.localeDateString(localTime(2026, 9, 23)), 0]]);
-	});
 });
 
 describe('Formats', () => {
@@ -180,6 +170,48 @@ describe('todoKeyOf', () => {
 
 	it('区切り文字を含んでも別の組み合わせと衝突しない', () => {
 		assert.notEqual(todoKeyOf({type: 'A","B', title: ''}), todoKeyOf({type: 'A', title: 'B'}));
+	});
+});
+
+describe('addToSubtotalByDate', () => {
+	it('開始日の日付ごとに作業時間を足す', () => {
+		const day1 = new Date(2024, 0, 1, 9).getTime();
+		const day2 = new Date(2024, 0, 2, 9).getTime();
+		/** @type{Map<string, number>} */
+		const subtotalByDate = new Map();
+		[
+			TimeRecord.load({type: 'A', start: day1, end: day1 + 60000}),
+			TimeRecord.load({type: 'B', start: day2, end: day2 + 120000}),
+			TimeRecord.load({type: 'A', start: day1 + 60000, end: day1 + 240000}),
+		].forEach(record => addToSubtotalByDate(subtotalByDate, record));
+		assert.deepEqual([...subtotalByDate], [
+			[Formats.localeDateString(day1), 240],
+			[Formats.localeDateString(day2), 120],
+		]);
+	});
+
+	it('日付を跨いだ記録は 0:00 で分け、加算した秒数を返す', () => {
+		const subtotalByDate = new Map();
+		const record = TimeRecord.load({type: '作業', start: localTime(2026, 9, 22, 23, 0), end: localTime(2026, 9, 24, 0, 30)});
+		assert.equal(addToSubtotalByDate(subtotalByDate, record), (60 + 24 * 60 + 30) * 60);
+		assert.deepEqual([...subtotalByDate], [
+			[Formats.localeDateString(localTime(2026, 9, 22)), 60 * 60],
+			[Formats.localeDateString(localTime(2026, 9, 23)), 24 * 60 * 60],
+			[Formats.localeDateString(localTime(2026, 9, 24)), 30 * 60],
+		]);
+	});
+
+	it('期間を渡すと、期間に含まれる日だけを加算する', () => {
+		const subtotalByDate = new Map();
+		const record = TimeRecord.load({type: '作業', start: localTime(2026, 9, 22, 23, 0), end: localTime(2026, 9, 24, 0, 30)});
+		assert.equal(addToSubtotalByDate(subtotalByDate, record, localTime(2026, 9, 23), localTime(2026, 9, 24)), 24 * 60 * 60);
+		assert.deepEqual([...subtotalByDate], [[Formats.localeDateString(localTime(2026, 9, 23)), 24 * 60 * 60]]);
+	});
+
+	it('長さ 0 の記録も開始日に 0 秒で入れる', () => {
+		const subtotalByDate = new Map();
+		addToSubtotalByDate(subtotalByDate, TimeRecord.load({type: '作業', start: localTime(2026, 9, 23, 9, 0), end: localTime(2026, 9, 23, 9, 0)}));
+		assert.deepEqual([...subtotalByDate], [[Formats.localeDateString(localTime(2026, 9, 23)), 0]]);
 	});
 });
 
@@ -280,5 +312,30 @@ describe('createDebouncedWriter', () => {
 		mock.timers.tick(1000);
 		writer.flush();
 		assert.deepEqual(written, ['a']);
+	});
+});
+
+describe('swapped', () => {
+	it('2 つの要素を入れ替えた新しい配列を返し、元の配列は変えない', () => {
+		const array = ['a', 'b', 'c'];
+		assert.deepEqual(swapped(array, 0, 2), ['c', 'b', 'a']);
+		assert.deepEqual(swapped(array, 1, 0), ['b', 'a', 'c']);
+		assert.deepEqual(array, ['a', 'b', 'c']);
+	});
+});
+
+describe('is勤務外', () => {
+	it('昼休憩と中断だけが勤務外', () => {
+		assert.deepEqual(['昼休憩', '中断', '開発', 'ミーティング', ''].map(is勤務外), [true, true, false, false, false]);
+	});
+});
+
+describe('typesToNamesWithCurrent', () => {
+	const types = [{name: '開発'}, {name: 'MTG'}];
+	it('分類の名前の一覧を返す', () => {
+		assert.deepEqual(typesToNamesWithCurrent(types, 'MTG'), ['開発', 'MTG']);
+	});
+	it('現在の分類が一覧になければ先頭に足す', () => {
+		assert.deepEqual(typesToNamesWithCurrent(types, '削除した分類'), ['削除した分類', '開発', 'MTG']);
 	});
 });
