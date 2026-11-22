@@ -6,7 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {after, afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {chromium} from 'playwright';
-import {loadRecords} from '../../chrome-extension/record-storage.js';
+import {isRecordKey, loadRecords} from '../../chrome-extension/record-storage.js';
+import {TimeRecord} from '../../chrome-extension/utils.js';
 
 const extensionDir = fileURLToPath(new URL('../../chrome-extension', import.meta.url));
 
@@ -55,17 +56,14 @@ export const launchExtension = async (options = {}) => {
 export const resetStorage = (page, items) => page.evaluate(items => chrome.storage.local.clear().then(() => chrome.storage.local.set(items)), items);
 
 /**
- * 保存した記録 1 件を、項目名のある形にする
- * 配列 (ToDo を ID で参照する記録は [開始, 経過, ToDo の ID, メモ?]、ほかは [開始, 経過, 分類, タイトル?, メモ?]) なら、ToDo の分類・タイトル・メモで埋める
+ * 保存した記録 1 件を、項目名のある形にする（配列なら TimeRecord.load で読み、ToDo を参照していれば ToDo の分類・タイトル・メモで埋める）
  * @param {any} record
  * @param {Map<number, any>} todoById
  */
 export const recordObjectOf = (record, todoById) => {
 	if (!Array.isArray(record)) return record;
-	const [start, elapsed, ref, a, b] = record;
-	const todo = typeof ref === 'number' ? todoById.get(ref) : undefined;
-	const [type, title, memo] = typeof ref === 'number' ? [todo?.type, todo?.title, a ?? todo?.memo] : [ref, a, b];
-	return {start, ...(elapsed == null ? {} : {end: start + elapsed}), type, ...(title == null ? {} : {title}), ...(memo ? {memo} : {})};
+	const {start, end, type, title, memo} = TimeRecord.load(record, todoById);
+	return {start, ...(end === undefined ? {} : {end}), type, ...(title == null ? {} : {title}), ...(memo ? {memo} : {})};
 };
 
 /**
@@ -76,7 +74,7 @@ export const withRecordObjects = items => {
 	const todoById = new Map((items.todo ?? []).map(todo => [todo.id, todo]));
 	return Object.fromEntries(Object.entries(items).map(([key, value]) => [
 		key,
-		(key === 'record' || key.startsWith('record.')) && Array.isArray(value) ? value.map(r => recordObjectOf(r, todoById)) : value,
+		isRecordKey(key) && Array.isArray(value) ? value.map(r => recordObjectOf(r, todoById)) : value,
 	]));
 };
 
